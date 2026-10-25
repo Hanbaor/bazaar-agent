@@ -1,0 +1,51 @@
+name: CI
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: bazaar
+          POSTGRES_PASSWORD: bazaar_ci
+          POSTGRES_DB: bazaar_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bazaar -d bazaar_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql+psycopg://bazaar:bazaar_ci@127.0.0.1:5432/bazaar_test
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v9
+        with:
+          version: "0.13.5"
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Check formatting
+        run: uv run --locked ruff format --check .
+
+      - name: Check code
+        run: uv run --locked ruff check .
+
+      - name: Run tests
+        run: uv run --locked pytest

@@ -2,6 +2,7 @@ import os
 
 from sqlalchemy import create_engine, text
 
+
 def main() -> None:
     engine = create_engine(os.environ["DATABASE_URL"])
     with engine.connect() as connection:
