@@ -1,0 +1,40 @@
+{
+  "scenario_id": "s03_low_budget",
+  "seed": 17,
+  "initial_time": 540,
+  "market": "fixed_price_starter_v1",
+  "mandate": {
+    "budget_total": 10000,
+    "order_deadline": 1080,
+    "delivery_deadline": 2160,
+    "items": [
+      {"item_id": "lamp", "need": "可调光 LED 台灯，USB 供电", "qty": 1},
+      {"item_id": "cable", "need": "1 米 60W USB-C 数据线", "qty": 2},
+      {"item_id": "organizer", "need": "桌面收纳盒", "qty": 1}
+    ],
+    "requirements": [
+      {
+        "id": "no_used",
+        "text": "不要二手或翻新",
+        "must": true,
+        "check": "evidence"
+      }
+    ]
+  },
+  "events": [],
+  "user_policy": "reject_over_budget",
+  "expected": {
+    "outcome": "correct_stop",
+    "reference_spent": 0
+  },
+  "evidence_paths": [
+    "get_listing:lamp_a:description",
+    "get_listing:lamp_b:description",
+    "get_listing:cable_a:description",
+    "get_listing:organizer_a:description",
+    "get_policy:老王杂货:pricing",
+    "get_policy:小李数码:pricing",
+    "get_policy:闪购铺:pricing"
+  ],
+  "reference_trace": []
+}
