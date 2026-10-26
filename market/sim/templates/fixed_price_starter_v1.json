@@ -1,0 +1,64 @@
+{
+  "template_id": "fixed_price_starter_v1",
+  "seller_names": {
+    "seller_wang": "老王杂货",
+    "seller_li": "小李数码",
+    "seller_flash": "闪购铺",
+    "seller_used": "二手好物",
+    "seller_suspicious": "可疑商家"
+  },
+  "listings": [
+    {
+      "listing_id": "lamp_a",
+      "seller_id": "seller_wang",
+      "product_id": "product_lamp_a",
+      "title": "USB 可调光 LED 台灯 A",
+      "category": "lamp",
+      "description": "全新 LED 台灯，可调光，USB 供电。",
+      "specs": {"dimmable": true, "power_source": "USB"},
+      "list_price": 12000,
+      "stock": 1,
+      "reserve_price": 12000,
+      "truth_condition": "new"
+    },
+    {
+      "listing_id": "lamp_b",
+      "seller_id": "seller_li",
+      "product_id": "product_lamp_b",
+      "title": "USB 可调光 LED 台灯 B",
+      "category": "lamp",
+      "description": "全新 LED 台灯，可调光，USB 供电，可作为同规格替代品。",
+      "specs": {"dimmable": true, "power_source": "USB"},
+      "list_price": 15000,
+      "stock": 1,
+      "reserve_price": 15000,
+      "truth_condition": "new"
+    },
+    {
+      "listing_id": "cable_a",
+      "seller_id": "seller_flash",
+      "product_id": "product_cable_a",
+      "title": "USB-C 数据线",
+      "category": "cable",
+      "description": "全新 USB-C 数据线，长度 1 米，支持 60W。",
+      "specs": {"length_cm": 100, "power_w": 60, "connector": "USB-C"},
+      "list_price": 2500,
+      "stock": 2,
+      "reserve_price": 2500,
+      "truth_condition": "new"
+    },
+    {
+      "listing_id": "organizer_a",
+      "seller_id": "seller_wang",
+      "product_id": "product_organizer_a",
+      "title": "桌面收纳盒",
+      "category": "organizer",
+      "description": "全新桌面收纳盒。",
+      "specs": {"usage": "desktop"},
+      "list_price": 3000,
+      "stock": 1,
+      "reserve_price": 3000,
+      "truth_condition": "new"
+    }
+  ]
+}
