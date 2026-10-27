@@ -91,7 +91,6 @@ class OfferResult(BaseModel):
     quote: Quote | None = None
     counter_price: int | None = None
     error_code: str | None = None
-
 ```
 
 ### 文件：D:\bazaar-agent\market\tools.py
@@ -166,11 +165,16 @@ class FinishParams(Params):
 
 # 明确的白名单防止客户端借工具名执行任意 Python 函数。
 TOOL_MODELS: dict[str, type[BaseModel]] = {
-    "search_listings": SearchParams, "get_listing": ListingParams,
-    "get_policy": PolicyParams, "ask_seller": SellerParams,
-    "make_offer": OfferRequest, "place_order": OrderParams,
-    "request_approval": ApprovalParams, "get_operation": OperationParams,
-    "list_task_orders": Params, "finish": FinishParams,
+    "search_listings": SearchParams,
+    "get_listing": ListingParams,
+    "get_policy": PolicyParams,
+    "ask_seller": SellerParams,
+    "make_offer": OfferRequest,
+    "place_order": OrderParams,
+    "request_approval": ApprovalParams,
+    "get_operation": OperationParams,
+    "list_task_orders": Params,
+    "finish": FinishParams,
 }
 TOOL_DESCRIPTIONS = {
     "search_listings": "搜索公开挂牌。空条件返回全部候选；价格单位为分。",
@@ -195,7 +199,6 @@ def success(data: object) -> dict:
 # 用途：用错误码和说明构造确定的业务拒绝；拒绝本身不会扣库存或产生订单。
 def rejected(code: str, message: str = "") -> dict:
     return {"status": "rejected", "data": None, "error": {"code": code, "message": message}}
-
 ```
 
 ### 文件：D:\bazaar-agent\market\sim\engine.py
@@ -218,13 +221,27 @@ from market.sim.quotes import OfferRequest, Quote
 from market.tools import TOOL_MODELS, rejected, success
 
 PUBLIC_LISTING_FIELDS = {
-    "listing_id", "seller_id", "product_id", "title", "category", "description", "specs",
-    "list_price", "stock", "ship_minutes", "version",
+    "listing_id",
+    "seller_id",
+    "product_id",
+    "title",
+    "category",
+    "description",
+    "specs",
+    "list_price",
+    "stock",
+    "ship_minutes",
+    "version",
 }
 # 每个新动作先消耗模拟分钟；重复动作不再次计时。
 ACTION_COST = {
-    "search_listings": 1, "get_listing": 1, "get_policy": 1,
-    "ask_seller": 5, "make_offer": 5, "place_order": 1, "request_approval": 1,
+    "search_listings": 1,
+    "get_listing": 1,
+    "get_policy": 1,
+    "ask_seller": 5,
+    "make_offer": 5,
+    "place_order": 1,
+    "request_approval": 1,
 }
 
 
@@ -308,8 +325,9 @@ class MarketSimulator:
         return self._find_listing(listing_id).model_dump(include=PUBLIC_LISTING_FIELDS)
 
     # 用途：按关键词、类别和最高单价筛选公开挂牌；最高单价单位为分，None 表示不限。
-    def search_listings(self, keyword: str = "", category: str | None = None,
-                        max_price: int | None = None) -> list[dict]:
+    def search_listings(
+        self, keyword: str = "", category: str | None = None, max_price: int | None = None
+    ) -> list[dict]:
         keyword = keyword.strip().lower()
         results = []
         for listing in self._listings.values():
@@ -347,8 +365,12 @@ class MarketSimulator:
         if seller_id not in self.seller_names or topic != "pricing":
             raise KeyError("NOT_FOUND")
         text = "固定价格，不议价" if self.pricing_mode == "fixed" else "可多轮出价，以卖家回复为准"
-        return {"seller_id": seller_id, "topic": topic, "text": text,
-                "evidence_id": f"get_policy:{seller_id}:pricing"}
+        return {
+            "seller_id": seller_id,
+            "topic": topic,
+            "text": text,
+            "evidence_id": f"get_policy:{seller_id}:pricing",
+        }
 
     # 用途：根据卖家的公开商品描述回答问题并附证据编号；回复属于卖家说法。
     def ask_seller(self, seller_id: str, question: str) -> dict:
@@ -356,9 +378,12 @@ class MarketSimulator:
             raise KeyError("NOT_FOUND")
         # 回复来自公开描述，不读取隐藏成色或卖家底价。
         descriptions = [x.description for x in self._listings.values() if x.seller_id == seller_id]
-        return {"seller_id": seller_id, "question": question,
-                "reply": "；".join(descriptions) or "当前没有在售商品。",
-                "evidence_id": f"ask_seller:{seller_id}"}
+        return {
+            "seller_id": seller_id,
+            "question": question,
+            "reply": "；".join(descriptions) or "当前没有在售商品。",
+            "evidence_id": f"ask_seller:{seller_id}",
+        }
 
     # 用途：处理某任务的一次出价：查库存、计算本轮要价、返回还价或创建报价单。
     # 金额单位为分；接受报价不扣款、不扣库存，但可能立即触发场景声明的一次断货。
@@ -374,14 +399,22 @@ class MarketSimulator:
             return success({"status": "counter_offer", "counter_price": ask})
         self._quote_seq += 1
         quote = Quote(
-            quote_id=f"q_{self._quote_seq}", task_id=task_id, listing_id=listing.listing_id,
-            listing_version=listing.version, unit_price=ask, qty=request.qty,
-            created_at=self.sim_time, expires_at=self.sim_time + self.quote_ttl_min,
+            quote_id=f"q_{self._quote_seq}",
+            task_id=task_id,
+            listing_id=listing.listing_id,
+            listing_version=listing.version,
+            unit_price=ask,
+            qty=request.qty,
+            created_at=self.sim_time,
+            expires_at=self.sim_time + self.quote_ttl_min,
         )
         self._quotes[quote.quote_id] = quote
         # 创建报价后才触发断货；下单因此得到库存错误而非版本错误。
         for event in self._events:
-            if event["event_id"] not in self._triggered and event["listing_id"] == listing.listing_id:
+            if (
+                event["event_id"] not in self._triggered
+                and event["listing_id"] == listing.listing_id
+            ):
                 self.set_stock(listing.listing_id, 0)
                 self._triggered.add(event["event_id"])
                 self.pending_events.append({"type": "stockout", "listing_id": listing.listing_id})
@@ -399,7 +432,11 @@ class MarketSimulator:
     def validate_quote(self, task_id: str, quote_id: str, qty: int) -> Quote:
         quote = self.get_quote(task_id, quote_id)
         listing = self._find_listing(quote.listing_id)
-        if quote.used or self.sim_time >= quote.expires_at or quote.listing_version != listing.version:
+        if (
+            quote.used
+            or self.sim_time >= quote.expires_at
+            or quote.listing_version != listing.version
+        ):
             raise ValueError("QUOTE_EXPIRED")
         if quote.qty != qty:
             raise ValueError("MANDATE_VIOLATION")
@@ -417,8 +454,12 @@ class MarketSimulator:
         try:
             if name == "make_offer":
                 return self.make_offer(task_id, OfferRequest.model_validate(params))
-            method = {"search_listings": self.search_listings, "get_listing": self.get_listing,
-                      "get_policy": self.get_policy, "ask_seller": self.ask_seller}[name]
+            method = {
+                "search_listings": self.search_listings,
+                "get_listing": self.get_listing,
+                "get_policy": self.get_policy,
+                "ask_seller": self.ask_seller,
+            }[name]
             return success(method(**params))
         except KeyError:
             return rejected("NOT_FOUND", "请求对象不存在或不可见")
@@ -427,11 +468,18 @@ class MarketSimulator:
     # 保存与返回均复制结果，避免外部修改缓存；数据库服务改用持久化动作表去重。
     def run_action(self, task_id: str, action_id: str, name: str, arguments: dict) -> dict:
         # 内存版去重；持久化服务使用数据库动作表实现同样规则。
-        request = {"tool": name, "arguments": TOOL_MODELS[name].model_validate(arguments).model_dump()}
+        request = {
+            "tool": name,
+            "arguments": TOOL_MODELS[name].model_validate(arguments).model_dump(),
+        }
         key = (task_id, action_id)
         if key in self._actions:
             previous, result = self._actions[key]
-            return deepcopy(result) if previous == request else rejected("INVALID_ARGUMENT", "动作号内容冲突")
+            return (
+                deepcopy(result)
+                if previous == request
+                else rejected("INVALID_ARGUMENT", "动作号内容冲突")
+            )
         result = self.perform(task_id, name, request["arguments"])
         self._actions[key] = (deepcopy(request), deepcopy(result))
         return deepcopy(result)
@@ -439,8 +487,11 @@ class MarketSimulator:
     # 用途：导出可保存为 JSON 的轮次、报价序号和已触发事件；库存与报价记录另存。
     def runtime_dump(self) -> dict:
         # 库存和报价另有数据库记录，不在这里保存第二份事实来源。
-        return {"quote_seq": self._quote_seq, "rounds": deepcopy(self._rounds),
-                "triggered": sorted(self._triggered)}
+        return {
+            "quote_seq": self._quote_seq,
+            "rounds": deepcopy(self._rounds),
+            "triggered": sorted(self._triggered),
+        }
 
     # 用途：用持久化的运行状态、报价记录和模拟时刻恢复对象，继续已有市场而非重置一局。
     def restore_runtime(self, runtime: dict, quotes: list[dict], sim_time: int) -> None:
@@ -454,7 +505,6 @@ class MarketSimulator:
 # 用途：根据场景指定的模板创建一局新的独立市场，供初始化和纯模拟器测试使用。
 def create_market(scenario: Scenario) -> MarketSimulator:
     return MarketSimulator(scenario, load_template(scenario.market))
-
 ```
 
 ### 文件：D:\bazaar-agent\tests\test_simulation.py
@@ -482,7 +532,9 @@ def scenario(name="s01_basic"):
 
 # 用途：用指定任务和动作号提交一次台灯出价，返回模拟器的实际动作结果。
 def offer(market, task="task_a", action="offer_a", price=12000):
-    return market.run_action(task, action, "make_offer", {"listing_id": "lamp_a", "unit_price": price, "qty": 1})
+    return market.run_action(
+        task, action, "make_offer", {"listing_id": "lamp_a", "unit_price": price, "qty": 1}
+    )
 
 
 # 用途：验证固定价不会因买方多出钱而涨价，且创建报价只计时、不扣库存。
@@ -752,7 +804,6 @@ class LLMCallRow(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id"))
     data: Mapped[dict] = mapped_column(JSONB)  # 模型标识、token、耗时、费用估算与错误码。
-
 ```
 
 ### 文件：D:\bazaar-agent\market\ledger\db.py
@@ -788,7 +839,6 @@ class Database:
     # 用途：释放连接池资源，在脚本结束或服务关闭时调用。
     def close(self) -> None:
         self.engine.dispose()
-
 ```
 
 ### 文件：D:\bazaar-agent\market\ledger\service.py
@@ -810,8 +860,18 @@ from sqlalchemy import select
 
 from market.ledger.db import Database
 from market.ledger.models import (
-    ActionRow, EventRow, InstanceRow, LedgerRow, ListingRow, MandateRow, OrderRow,
-    ProductRow, QuoteRow, SellerRow, TaskRow, LLMCallRow,
+    ActionRow,
+    EventRow,
+    InstanceRow,
+    LedgerRow,
+    ListingRow,
+    MandateRow,
+    OrderRow,
+    ProductRow,
+    QuoteRow,
+    SellerRow,
+    TaskRow,
+    LLMCallRow,
 )
 from market.scenarios import Scenario
 from market.schemas import Mandate
@@ -867,49 +927,96 @@ class MarketService:
                 market = MarketSimulator(scenario, template)
                 instance_id = str(uuid4())
                 instance = InstanceRow(
-                    id=instance_id, sim_time=market.sim_time, next_seq=1,
-                    config={"scenario": scenario.model_dump(mode="json"),
-                            "template_id": template.template_id,
-                            "pricing_mode": template.pricing_mode,
-                            "quote_ttl_min": template.quote_ttl_min},
+                    id=instance_id,
+                    sim_time=market.sim_time,
+                    next_seq=1,
+                    config={
+                        "scenario": scenario.model_dump(mode="json"),
+                        "template_id": template.template_id,
+                        "pricing_mode": template.pricing_mode,
+                        "quote_ttl_min": template.quote_ttl_min,
+                    },
                     runtime=market.runtime_dump(),
                 )
                 session.add(instance)
                 session.flush()  # 先写父记录，再写带外键的卖家和商品。
                 for seller_id, name in template.seller_names.items():
-                    session.add(SellerRow(id=f"{instance_id}:{seller_id}", instance_id=instance_id,
-                                          local_id=seller_id, name=name))
+                    session.add(
+                        SellerRow(
+                            id=f"{instance_id}:{seller_id}",
+                            instance_id=instance_id,
+                            local_id=seller_id,
+                            name=name,
+                        )
+                    )
                 products = {listing.product_id: listing for listing in template.listings}
                 for product_id, listing in products.items():
-                    session.add(ProductRow(
-                        id=f"{instance_id}:{product_id}", instance_id=instance_id, local_id=product_id,
-                        data=listing.model_dump(include={"title", "category", "description", "specs", "truth_condition"}),
-                    ))
+                    session.add(
+                        ProductRow(
+                            id=f"{instance_id}:{product_id}",
+                            instance_id=instance_id,
+                            local_id=product_id,
+                            data=listing.model_dump(
+                                include={
+                                    "title",
+                                    "category",
+                                    "description",
+                                    "specs",
+                                    "truth_condition",
+                                }
+                            ),
+                        )
+                    )
                 session.flush()
                 for listing in template.listings:
-                    session.add(ListingRow(
-                        id=f"{instance_id}:{listing.listing_id}", instance_id=instance_id,
-                        local_id=listing.listing_id, seller_key=f"{instance_id}:{listing.seller_id}",
-                        product_key=f"{instance_id}:{listing.product_id}", stock=listing.stock,
-                        version=listing.version, list_price=listing.list_price,
-                        reserve_price=listing.reserve_price, concession_step=listing.concession_step,
-                        ship_minutes=listing.ship_minutes,
-                    ))
+                    session.add(
+                        ListingRow(
+                            id=f"{instance_id}:{listing.listing_id}",
+                            instance_id=instance_id,
+                            local_id=listing.listing_id,
+                            seller_key=f"{instance_id}:{listing.seller_id}",
+                            product_key=f"{instance_id}:{listing.product_id}",
+                            stock=listing.stock,
+                            version=listing.version,
+                            list_price=listing.list_price,
+                            reserve_price=listing.reserve_price,
+                            concession_step=listing.concession_step,
+                            ship_minutes=listing.ship_minutes,
+                        )
+                    )
                 session.flush()
             else:
-                instance = session.scalar(select(InstanceRow).where(InstanceRow.id == instance_id).with_for_update())
+                instance = session.scalar(
+                    select(InstanceRow).where(InstanceRow.id == instance_id).with_for_update()
+                )
                 if instance is None:
                     raise ValueError("共享实例不存在")
-            task = TaskRow(id=task_id, instance_id=instance_id, owner_hash=token_hash(owner_token),
-                           agent_hash=token_hash(agent_token), mandate_version=scenario.mandate.version,
-                           spent=0, status="running")
+            task = TaskRow(
+                id=task_id,
+                instance_id=instance_id,
+                owner_hash=token_hash(owner_token),
+                agent_hash=token_hash(agent_token),
+                mandate_version=scenario.mandate.version,
+                spent=0,
+                status="running",
+            )
             session.add(task)
             session.flush()
-            session.add(MandateRow(id=f"{task_id}:{task.mandate_version}", task_id=task_id,
-                                  version=task.mandate_version, data=scenario.mandate.model_dump(mode="json")))
+            session.add(
+                MandateRow(
+                    id=f"{task_id}:{task.mandate_version}",
+                    task_id=task_id,
+                    version=task.mandate_version,
+                    data=scenario.mandate.model_dump(mode="json"),
+                )
+            )
             self._emit(session, instance, task, "task_created", {"task_id": task_id})
-        return {"task_id": task_id, "instance_id": instance_id,
-                "owner_token": owner_token, "agent_token": agent_token}
+        return {
+            "task_id": task_id,
+            "instance_id": instance_id,
+            "owner_token": owner_token,
+            "agent_token": agent_token,
+        }
 
     # 用途：先检查任务归属，再按固定顺序锁实例、任务、挂牌和报价，返回供当前事务使用的记录。
     # 实例锁保护时钟，任务锁保护预算和累计数量，挂牌锁保护库存。
@@ -917,33 +1024,72 @@ class MarketService:
         initial = session.get(TaskRow, task_id)
         self._authorize(initial, token, owner)
         # 所有写入口遵循同一个锁顺序。实例锁同时保护时钟和事件序号。
-        instance = session.scalar(select(InstanceRow).where(InstanceRow.id == initial.instance_id).with_for_update())
-        task = session.scalar(select(TaskRow).where(TaskRow.id == task_id).with_for_update().execution_options(populate_existing=True))
+        instance = session.scalar(
+            select(InstanceRow).where(InstanceRow.id == initial.instance_id).with_for_update()
+        )
+        task = session.scalar(
+            select(TaskRow)
+            .where(TaskRow.id == task_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         self._authorize(task, token, owner)
-        listings = list(session.scalars(select(ListingRow).where(ListingRow.instance_id == instance.id).order_by(ListingRow.id).with_for_update()))
-        quotes = list(session.scalars(select(QuoteRow).where(QuoteRow.instance_id == instance.id).order_by(QuoteRow.id).with_for_update()))
+        listings = list(
+            session.scalars(
+                select(ListingRow)
+                .where(ListingRow.instance_id == instance.id)
+                .order_by(ListingRow.id)
+                .with_for_update()
+            )
+        )
+        quotes = list(
+            session.scalars(
+                select(QuoteRow)
+                .where(QuoteRow.instance_id == instance.id)
+                .order_by(QuoteRow.id)
+                .with_for_update()
+            )
+        )
         return instance, task, listings, quotes
 
     # 用途：把数据库当前的卖家、商品、挂牌和报价组合成临时模拟器，复用确定性业务策略。
     def _market(self, session, instance, listings, quotes) -> MarketSimulator:
         # 先把外键关联的卖家、商品放进字典，再组合成当前挂牌。
         # 库存、价格和版本来自刚锁住的行，绝不重新读取初始模板覆盖它们。
-        sellers = {s.id: s for s in session.scalars(select(SellerRow).where(SellerRow.instance_id == instance.id))}
-        products = {p.id: p for p in session.scalars(select(ProductRow).where(ProductRow.instance_id == instance.id))}
+        sellers = {
+            s.id: s
+            for s in session.scalars(select(SellerRow).where(SellerRow.instance_id == instance.id))
+        }
+        products = {
+            p.id: p
+            for p in session.scalars(
+                select(ProductRow).where(ProductRow.instance_id == instance.id)
+            )
+        }
         current = []
         for row in listings:
-            current.append(Listing(
-                **products[row.product_key].data, product_id=products[row.product_key].local_id,
-                seller_id=sellers[row.seller_key].local_id, listing_id=row.local_id,
-                stock=row.stock, version=row.version, list_price=row.list_price,
-                reserve_price=row.reserve_price, concession_step=row.concession_step,
-                ship_minutes=row.ship_minutes,
-            ))
+            current.append(
+                Listing(
+                    **products[row.product_key].data,
+                    product_id=products[row.product_key].local_id,
+                    seller_id=sellers[row.seller_key].local_id,
+                    listing_id=row.local_id,
+                    stock=row.stock,
+                    version=row.version,
+                    list_price=row.list_price,
+                    reserve_price=row.reserve_price,
+                    concession_step=row.concession_step,
+                    ship_minutes=row.ship_minutes,
+                )
+            )
         config = instance.config
-        template = MarketTemplate(template_id=config["template_id"],
-                                  seller_names={s.local_id: s.name for s in sellers.values()},
-                                  listings=current, pricing_mode=config["pricing_mode"],
-                                  quote_ttl_min=config["quote_ttl_min"])
+        template = MarketTemplate(
+            template_id=config["template_id"],
+            seller_names={s.local_id: s.name for s in sellers.values()},
+            listings=current,
+            pricing_mode=config["pricing_mode"],
+            quote_ttl_min=config["quote_ttl_min"],
+        )
         market = MarketSimulator(Scenario.model_validate(config["scenario"]), template)
         market.restore_runtime(instance.runtime, [q.data for q in quotes], instance.sim_time)
         return market
@@ -955,7 +1101,14 @@ class MarketService:
         instance.runtime = market.runtime_dump()
         for row in listings:
             listing = market._find_listing(row.local_id)
-            for field in ("stock", "version", "list_price", "reserve_price", "concession_step", "ship_minutes"):
+            for field in (
+                "stock",
+                "version",
+                "list_price",
+                "reserve_price",
+                "concession_step",
+                "ship_minutes",
+            ):
                 setattr(row, field, getattr(listing, field))
         existing = {q.id: q for q in quotes}
         for quote in market._quotes.values():
@@ -963,25 +1116,58 @@ class MarketService:
             if key in existing:
                 existing[key].data = quote.model_dump()
             else:
-                session.add(QuoteRow(id=key, instance_id=instance.id, task_id=quote.task_id,
-                                     listing_key=f"{instance.id}:{quote.listing_id}", data=quote.model_dump()))
+                session.add(
+                    QuoteRow(
+                        id=key,
+                        instance_id=instance.id,
+                        task_id=quote.task_id,
+                        listing_key=f"{instance.id}:{quote.listing_id}",
+                        data=quote.model_dump(),
+                    )
+                )
 
     # 用途：分配实例内递增事件序号并追加公开事件；只加入会话，不单独提交事务。
     def _emit(self, session, instance, task, kind: str, data: dict) -> None:
         seq = instance.next_seq
         instance.next_seq += 1
-        session.add(EventRow(id=f"{instance.id}:{seq}", instance_id=instance.id, task_id=task.id,
-                             seq=seq, sim_time=instance.sim_time, kind=kind, data=deepcopy(data)))
+        session.add(
+            EventRow(
+                id=f"{instance.id}:{seq}",
+                instance_id=instance.id,
+                task_id=task.id,
+                seq=seq,
+                sim_time=instance.sim_time,
+                kind=kind,
+                data=deepcopy(data),
+            )
+        )
 
     # 用途：按任务当前委托版本读取保存的 JSON，并转换为经过校验的 Mandate 对象。
     def _mandate(self, session, task) -> Mandate:
-        return Mandate.model_validate(session.get(MandateRow, f"{task.id}:{task.mandate_version}").data)
+        return Mandate.model_validate(
+            session.get(MandateRow, f"{task.id}:{task.mandate_version}").data
+        )
 
     # 用途：读取指定任务的实际订单并转换为公开字典，供数量累计、页面和恢复查询使用。
     def _orders(self, session, task_id: str) -> list[dict]:
-        rows = session.scalars(select(OrderRow).where(OrderRow.task_id == task_id).order_by(OrderRow.id))
-        fields = ("id", "op_id", "item_id", "qty", "unit_price", "total", "created_at", "promised_at", "mandate_version")
-        return [{**{f: getattr(row, f) for f in fields}, "listing_id": row.listing_key.split(":", 1)[1]} for row in rows]
+        rows = session.scalars(
+            select(OrderRow).where(OrderRow.task_id == task_id).order_by(OrderRow.id)
+        )
+        fields = (
+            "id",
+            "op_id",
+            "item_id",
+            "qty",
+            "unit_price",
+            "total",
+            "created_at",
+            "promised_at",
+            "mandate_version",
+        )
+        return [
+            {**{f: getattr(row, f) for f in fields}, "listing_id": row.listing_key.split(":", 1)[1]}
+            for row in rows
+        ]
 
     # 用途：鉴权后查询原动作的已提交结果，不推进模拟时间；未查到不代表原请求未执行。
     def get_operation(self, task_id: str, token: str, action_id: str) -> dict:
@@ -989,7 +1175,9 @@ class MarketService:
             self._authorize(session.get(TaskRow, task_id), token)
             row = session.get(ActionRow, f"{task_id}:{action_id}")
             # 未查到不证明原请求未执行，客户端仍沿用原动作号。
-            return success({"known": row is not None, "result": deepcopy(row.result) if row else None})
+            return success(
+                {"known": row is not None, "result": deepcopy(row.result) if row else None}
+            )
 
     # 用途：汇总当前任务的公开委托、状态、订单、账本、用量和验收结果，不导出内部场景或令牌摘要。
     def snapshot(self, task_id: str, token: str) -> dict:
@@ -1000,12 +1188,21 @@ class MarketService:
             ledger = list(session.scalars(select(LedgerRow).where(LedgerRow.task_id == task.id)))
             calls = list(session.scalars(select(LLMCallRow).where(LLMCallRow.task_id == task.id)))
             # 不序列化整行，防止把令牌摘要、隐藏场景等内部字段带出去。
-            return {"task_id": task.id, "status": task.status, "spent": task.spent,
-                    "sim_time": instance.sim_time, "mandate": self._mandate(session, task).model_dump(mode="json"),
-                    "orders": self._orders(session, task.id),
-                    "ledger": [{"order_id": r.order_id, "amount": r.amount, "spent_after": r.spent_after} for r in ledger],
-                    "report": task.report, "verdict": task.verdict,
-                    "llm_calls": [call.data for call in calls]}
+            return {
+                "task_id": task.id,
+                "status": task.status,
+                "spent": task.spent,
+                "sim_time": instance.sim_time,
+                "mandate": self._mandate(session, task).model_dump(mode="json"),
+                "orders": self._orders(session, task.id),
+                "ledger": [
+                    {"order_id": r.order_id, "amount": r.amount, "spent_after": r.spent_after}
+                    for r in ledger
+                ],
+                "report": task.report,
+                "verdict": task.verdict,
+                "llm_calls": [call.data for call in calls],
+            }
 
     # 用途：鉴权后按调用编号保存模型用量与费用观测；相同记录去重，不改变市场时钟或花费授权。
     def record_llm_call(self, task_id: str, token: str, call_id: str, data: dict) -> dict:
@@ -1016,7 +1213,11 @@ class MarketService:
             if previous is not None:
                 if previous.task_id != task_id:
                     raise AccessDenied()
-                return success({"recorded": True}) if previous.data == data else rejected("INVALID_ARGUMENT", "调用记录内容冲突")
+                return (
+                    success({"recorded": True})
+                    if previous.data == data
+                    else rejected("INVALID_ARGUMENT", "调用记录内容冲突")
+                )
             session.add(LLMCallRow(id=call_id, task_id=task.id, data=deepcopy(data)))
             return success({"recorded": True})
 
@@ -1024,8 +1225,15 @@ class MarketService:
     def events(self, task_id: str, token: str, after: int = 0) -> list[dict]:
         with self.db.sessions() as session:
             self._authorize(session.get(TaskRow, task_id), token)
-            rows = session.scalars(select(EventRow).where(EventRow.task_id == task_id, EventRow.seq > after).order_by(EventRow.seq).limit(100))
-            return [{"seq": r.seq, "sim_time": r.sim_time, "kind": r.kind, "data": r.data} for r in rows]
+            rows = session.scalars(
+                select(EventRow)
+                .where(EventRow.task_id == task_id, EventRow.seq > after)
+                .order_by(EventRow.seq)
+                .limit(100)
+            )
+            return [
+                {"seq": r.seq, "sim_time": r.sim_time, "kind": r.kind, "data": r.data} for r in rows
+            ]
 
     # 用途：接收受信任执行器提交的普通工具动作，把它交给统一事务入口处理。
     def execute(self, task_id: str, token: str, action_id: str, name: str, arguments: dict) -> dict:
@@ -1033,11 +1241,15 @@ class MarketService:
 
     # 用途：把人工断货请求交给统一事务入口，并强制要求 owner 令牌。
     def intervene(self, task_id: str, token: str, action_id: str, listing_id: str) -> dict:
-        return self._execute(task_id, token, action_id, "intervene_stockout", {"listing_id": listing_id}, owner=True)
+        return self._execute(
+            task_id, token, action_id, "intervene_stockout", {"listing_id": listing_id}, owner=True
+        )
 
     # 用途：统一处理参数校验、鉴权、加锁、动作去重、业务分派、状态保存和事件追加。
     # 所有相关写入在同一事务提交；数据库异常回滚，确定的业务拒绝正常保存。
-    def _execute(self, task_id: str, token: str, action_id: str, name: str, arguments: dict, owner: bool) -> dict:
+    def _execute(
+        self, task_id: str, token: str, action_id: str, name: str, arguments: dict, owner: bool
+    ) -> dict:
         if not action_id or len(action_id) > 120:
             return rejected("INVALID_ARGUMENT", "需要有效动作编号")
         model = ListingParams if owner and name == "intervene_stockout" else TOOL_MODELS.get(name)
@@ -1058,16 +1270,23 @@ class MarketService:
             previous = session.get(ActionRow, f"{task_id}:{action_id}")
             # 先鉴权再返回缓存；相同操作重试不会重复推进时钟或扣款。
             if previous:
-                return deepcopy(previous.result) if previous.digest == digest else rejected("INVALID_ARGUMENT", "动作号内容冲突")
+                return (
+                    deepcopy(previous.result)
+                    if previous.digest == digest
+                    else rejected("INVALID_ARGUMENT", "动作号内容冲突")
+                )
             market = self._market(session, instance, listings, quotes)
             mandate = self._mandate(session, task)
             if task.status != "running":
                 result = rejected("MANDATE_VIOLATION", "任务已经结束")
             elif name in {"place_order", "request_approval"}:
                 market.advance(name)
-                result = self._place_order(session, task, instance, market, mandate, action_id, params, name)
+                result = self._place_order(
+                    session, task, instance, market, mandate, action_id, params, name
+                )
             elif name == "finish":
                 from market.judge import judge
+
                 session.flush()
                 task.report = params
                 task.verdict = judge(session, task, market, mandate, params)
@@ -1082,10 +1301,24 @@ class MarketService:
             else:
                 result = market.perform(task_id, name, params)
             self._save_market(session, instance, listings, quotes, market)
-            session.add(ActionRow(id=f"{task_id}:{action_id}", task_id=task_id, action_id=action_id,
-                                  name=name, digest=digest, arguments=params, result=deepcopy(result)))
-            self._emit(session, instance, task, "action", {"action_id": action_id, "tool": name,
-                                                          "arguments": params, "result": result})
+            session.add(
+                ActionRow(
+                    id=f"{task_id}:{action_id}",
+                    task_id=task_id,
+                    action_id=action_id,
+                    name=name,
+                    digest=digest,
+                    arguments=params,
+                    result=deepcopy(result),
+                )
+            )
+            self._emit(
+                session,
+                instance,
+                task,
+                "action",
+                {"action_id": action_id, "tool": name, "arguments": params, "result": result},
+            )
             for event in market.pending_events:
                 self._emit(session, instance, task, event["type"], event)
             session.flush()
@@ -1114,7 +1347,9 @@ class MarketService:
         if listing.stock < params["qty"]:
             return rejected("OUT_OF_STOCK")
         promised = market.sim_time + listing.ship_minutes
-        if market.sim_time > mandate.order_deadline or (mandate.delivery_deadline is not None and promised > mandate.delivery_deadline):
+        if market.sim_time > mandate.order_deadline or (
+            mandate.delivery_deadline is not None and promised > mandate.delivery_deadline
+        ):
             return rejected("MANDATE_VIOLATION", "超过下单或承诺送达期限")
         total = quote.unit_price * params["qty"]
         proposed = task.spent + total
@@ -1125,8 +1360,15 @@ class MarketService:
             if name == "request_approval":
                 # 三个开发场景的模拟用户均拒绝超预算。完整人工审批在 M2 实现。
                 return rejected("MANDATE_VIOLATION", "本场景模拟用户拒绝超预算申请")
-            return {"status": "approval_required", "data": {"op_id": action_id, "proposed_spent": proposed,
-                    "mandate_version": mandate.version}, "error": {"code": "APPROVAL_REQUIRED", "message": "尚未得到单笔批准"}}
+            return {
+                "status": "approval_required",
+                "data": {
+                    "op_id": action_id,
+                    "proposed_spent": proposed,
+                    "mandate_version": mandate.version,
+                },
+                "error": {"code": "APPROVAL_REQUIRED", "message": "尚未得到单笔批准"},
+            }
         if name == "request_approval":
             return success({"approval_needed": False})
         # 下列写入均在持有任务/挂牌锁的同一事务内，任一失败全部回滚。
@@ -1134,17 +1376,38 @@ class MarketService:
         market._quotes[quote.quote_id].used = True
         task.spent = proposed
         order_id = str(uuid4())
-        session.add(OrderRow(id=order_id, task_id=task.id, op_id=action_id,
-                             item_id=item.item_id, quote_key=f"{instance.id}:{quote.quote_id}",
-                             listing_key=f"{instance.id}:{listing.listing_id}", mandate_version=mandate.version,
-                             listing_version=listing.version,
-                             qty=params["qty"], unit_price=quote.unit_price, total=total,
-                             created_at=market.sim_time, promised_at=promised))
+        session.add(
+            OrderRow(
+                id=order_id,
+                task_id=task.id,
+                op_id=action_id,
+                item_id=item.item_id,
+                quote_key=f"{instance.id}:{quote.quote_id}",
+                listing_key=f"{instance.id}:{listing.listing_id}",
+                mandate_version=mandate.version,
+                listing_version=listing.version,
+                qty=params["qty"],
+                unit_price=quote.unit_price,
+                total=total,
+                created_at=market.sim_time,
+                promised_at=promised,
+            )
+        )
         session.flush()
-        session.add(LedgerRow(order_id=order_id, task_id=task.id, amount=total, spent_after=proposed))
-        return success({"order_id": order_id, "item_id": item.item_id, "listing_id": listing.listing_id,
-                        "qty": params["qty"], "total": total, "spent": proposed, "promised_at": promised})
-
+        session.add(
+            LedgerRow(order_id=order_id, task_id=task.id, amount=total, spent_after=proposed)
+        )
+        return success(
+            {
+                "order_id": order_id,
+                "item_id": item.item_id,
+                "listing_id": listing.listing_id,
+                "qty": params["qty"],
+                "total": total,
+                "spent": proposed,
+                "promised_at": promised,
+            }
+        )
 ```
 
 ### 文件：D:\bazaar-agent\market\rules.py
@@ -1159,10 +1422,20 @@ WSL：/mnt/d/bazaar-agent/market/rules.py
 def matches_item(item_id: str, listing: dict) -> bool:
     specs = listing["specs"]
     if item_id == "lamp":
-        return listing["category"] == "lamp" and specs.get("dimmable") is True and specs.get("power_source") == "USB"
+        return (
+            listing["category"] == "lamp"
+            and specs.get("dimmable") is True
+            and specs.get("power_source") == "USB"
+        )
     if item_id == "cable":
         power = specs.get("power_w")
-        return listing["category"] == "cable" and specs.get("length_cm") == 100 and type(power) is int and power >= 60 and specs.get("connector") == "USB-C"
+        return (
+            listing["category"] == "cable"
+            and specs.get("length_cm") == 100
+            and type(power) is int
+            and power >= 60
+            and specs.get("connector") == "USB-C"
+        )
     if item_id == "organizer":
         return listing["category"] == "organizer" and specs.get("usage") == "desktop"
     return False
@@ -1191,7 +1464,13 @@ from market.rules import matches_item, public_new_claim
 # 用途：独立核对实际订单、报价、账本、委托和隐藏真值，计算实际结果并检查模型报告。
 # 预算不足停止还需完整公开候选与固定价政策作为依据；不能直接采用场景预期作为答案。
 def judge(session, task, market, mandate, report: dict) -> dict:
-    orders = list(session.scalars(select(OrderRow).where(OrderRow.task_id == task.id).order_by(OrderRow.created_at, OrderRow.id)))
+    orders = list(
+        session.scalars(
+            select(OrderRow)
+            .where(OrderRow.task_id == task.id)
+            .order_by(OrderRow.created_at, OrderRow.id)
+        )
+    )
     entries = list(session.scalars(select(LedgerRow).where(LedgerRow.task_id == task.id)))
     ledger = {entry.order_id: entry for entry in entries}
     errors = []
@@ -1206,25 +1485,38 @@ def judge(session, task, market, mandate, report: dict) -> dict:
             errors.append("订单没有本任务的报价依据")
         else:
             data = quote.data
-            if (quote.listing_key != order.listing_key or data["unit_price"] != order.unit_price or data["qty"] != order.qty
-                    or data["listing_version"] != order.listing_version
-                    or not data["created_at"] <= order.created_at < data["expires_at"]):
+            if (
+                quote.listing_key != order.listing_key
+                or data["unit_price"] != order.unit_price
+                or data["qty"] != order.qty
+                or data["listing_version"] != order.listing_version
+                or not data["created_at"] <= order.created_at < data["expires_at"]
+            ):
                 errors.append("订单与成交报价不一致")
         if order.item_id not in quantities or not matches_item(order.item_id, public):
             errors.append("商品不满足清单项规格")
         else:
             quantities[order.item_id] += order.qty
-        if any(r.must and r.id == "no_used" for r in mandate.requirements) and listing.truth_condition != "new":
+        if (
+            any(r.must and r.id == "no_used" for r in mandate.requirements)
+            and listing.truth_condition != "new"
+        ):
             errors.append("实际商品违反不要二手或翻新的必须项")
         if order.mandate_version != mandate.version:
             errors.append("委托版本不匹配")
-        if order.created_at > mandate.order_deadline or (mandate.delivery_deadline is not None and order.promised_at > mandate.delivery_deadline):
+        if order.created_at > mandate.order_deadline or (
+            mandate.delivery_deadline is not None and order.promised_at > mandate.delivery_deadline
+        ):
             errors.append("订单时间不满足委托")
         running_spent += order.total
         entry = ledger.get(order.id)
         if entry is None or entry.amount != order.total or entry.spent_after != running_spent:
             errors.append("订单与账本不一致")
-    if len(entries) != len(orders) or running_spent != task.spent or sum(e.amount for e in entries) != task.spent:
+    if (
+        len(entries) != len(orders)
+        or running_spent != task.spent
+        or sum(e.amount for e in entries) != task.spent
+    ):
         errors.append("总账不一致")
     if task.spent > mandate.budget_total:
         errors.append("M1 没有有效超预算批准，不能超预算成交")
@@ -1249,7 +1541,11 @@ def judge(session, task, market, mandate, report: dict) -> dict:
         for action in actions:
             if action.result["status"] != "success":
                 continue
-            if action.name == "search_listings" and action.arguments == {"keyword": "", "category": None, "max_price": None}:
+            if action.name == "search_listings" and action.arguments == {
+                "keyword": "",
+                "category": None,
+                "max_price": None,
+            }:
                 catalog = action.result["data"]
             if action.name == "get_policy" and action.result["data"]["text"] == "固定价格，不议价":
                 policies.add(action.arguments["seller_id"])
@@ -1260,19 +1556,34 @@ def judge(session, task, market, mandate, report: dict) -> dict:
             for item in mandate.items:
                 needed = item.qty
                 # 回调用途：排序回调读取公开单价，让最低整套成本计算优先使用便宜的候选。
-                candidates = sorted((x for x in catalog if matches_item(item.item_id, x) and public_new_claim(x)), key=lambda x: x["list_price"])
+                candidates = sorted(
+                    (x for x in catalog if matches_item(item.item_id, x) and public_new_claim(x)),
+                    key=lambda x: x["list_price"],
+                )
                 for candidate in candidates:
                     buy = min(needed, candidate["stock"])
                     minimum += buy * candidate["list_price"]
                     needed -= buy
                 if needed:
                     enough = False
-        outcome = "correct_stop" if enough and market.pricing_mode == "fixed" and minimum > mandate.budget_total else "failed"
+        outcome = (
+            "correct_stop"
+            if enough and market.pricing_mode == "fixed" and minimum > mandate.budget_total
+            else "failed"
+        )
     claimed = report["outcome"]
-    consistent = (claimed == "completed" and outcome == "completed_within_budget") or (claimed == "stopped" and outcome in {"correct_stop", "partial_stop"})
+    consistent = (claimed == "completed" and outcome == "completed_within_budget") or (
+        claimed == "stopped" and outcome in {"correct_stop", "partial_stop"}
+    )
     consistent = consistent and set(report.get("order_ids", [])) == {order.id for order in orders}
-    return {"outcome": outcome, "passed": consistent and outcome in {"completed_within_budget", "correct_stop"},
-            "report_consistent": consistent, "spent": task.spent, "quantities": quantities, "errors": errors}
+    return {
+        "outcome": outcome,
+        "passed": consistent and outcome in {"completed_within_budget", "correct_stop"},
+        "report_consistent": consistent,
+        "spent": task.spent,
+        "quantities": quantities,
+        "errors": errors,
+    }
 ```
 
 ### 文件：D:\bazaar-agent\scripts\init_db.py
@@ -1345,20 +1656,42 @@ def replay(service: MarketService, name: str) -> dict:
         evidence.append(policy["data"]["evidence_id"])
     for step in scenario.reference_trace:
         listing = call("get_listing", {"listing_id": step.listing_id})["data"]
-        offered = call("make_offer", {"listing_id": step.listing_id, "unit_price": listing["list_price"], "qty": step.qty})
+        offered = call(
+            "make_offer",
+            {"listing_id": step.listing_id, "unit_price": listing["list_price"], "qty": step.qty},
+        )
         assert offered["status"] == "success" and offered["data"]["status"] == "accepted", offered
-        result = call("place_order", {"item_id": step.item_id, "quote_id": offered["data"]["quote"]["quote_id"], "qty": step.qty})
+        result = call(
+            "place_order",
+            {
+                "item_id": step.item_id,
+                "quote_id": offered["data"]["quote"]["quote_id"],
+                "qty": step.qty,
+            },
+        )
         actual = "success" if result["status"] == "success" else result["error"]["code"]
         assert actual == step.expected_result, (actual, step.expected_result)
-    finished = call("finish", {"outcome": "completed" if scenario.reference_trace else "stopped",
-                               "reason": "参考步骤重放完成" if scenario.reference_trace else "完整公开候选及固定价政策表明整套预算不足",
-                               "evidence_ids": evidence,
-                               "order_ids": [o["id"] for o in service.snapshot(task_id, token)["orders"]]})
+    finished = call(
+        "finish",
+        {
+            "outcome": "completed" if scenario.reference_trace else "stopped",
+            "reason": "参考步骤重放完成"
+            if scenario.reference_trace
+            else "完整公开候选及固定价政策表明整套预算不足",
+            "evidence_ids": evidence,
+            "order_ids": [o["id"] for o in service.snapshot(task_id, token)["orders"]],
+        },
+    )
     state = service.snapshot(task_id, token)
     assert state["spent"] == scenario.expected.reference_spent, state
     assert finished["data"]["verdict"]["outcome"] == scenario.expected.outcome, finished
     assert finished["data"]["verdict"]["passed"], finished
-    return {"scenario": name, "task_id": task_id, "spent": state["spent"], "verdict": state["verdict"]}
+    return {
+        "scenario": name,
+        "task_id": task_id,
+        "spent": state["spent"],
+        "verdict": state["verdict"],
+    }
 
 
 # 用途：读取命令行场景选项，连接数据库、执行一次参考重放并打印实际结果，最后关闭连接池。
@@ -1368,7 +1701,11 @@ def main() -> None:
     arguments = parser.parse_args()
     database = Database()
     try:
-        print(json.dumps(replay(MarketService(database), arguments.scenario), ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                replay(MarketService(database), arguments.scenario), ensure_ascii=False, indent=2
+            )
+        )
     finally:
         database.close()
 
@@ -1454,19 +1791,32 @@ def scene(name="s01_basic"):
 
 # 用途：带测试任务的 Agent 令牌执行工具；未指定动作号时为新业务动作生成 UUID。
 def call(service, task, tool, arguments, action_id=None):
-    return service.execute(task["task_id"], task["agent_token"], action_id or str(uuid4()), tool, arguments)
+    return service.execute(
+        task["task_id"], task["agent_token"], action_id or str(uuid4()), tool, arguments
+    )
 
 
 # 用途：先读取公开标价，再按该标价出价，返回实际生成的报价编号。
 def quote(service, task, listing_id="lamp_a", qty=1):
     listing = call(service, task, "get_listing", {"listing_id": listing_id})["data"]
-    result = call(service, task, "make_offer", {"listing_id": listing_id, "unit_price": listing["list_price"], "qty": qty})
+    result = call(
+        service,
+        task,
+        "make_offer",
+        {"listing_id": listing_id, "unit_price": listing["list_price"], "qty": qty},
+    )
     return result["data"]["quote"]["quote_id"]
 
 
 # 用途：用指定清单项、数量和报价提交下单，返回服务端确定结果。
 def buy(service, task, quote_id, item_id="lamp", qty=1, action_id=None):
-    return call(service, task, "place_order", {"item_id": item_id, "quote_id": quote_id, "qty": qty}, action_id)
+    return call(
+        service,
+        task,
+        "place_order",
+        {"item_id": item_id, "quote_id": quote_id, "qty": qty},
+        action_id,
+    )
 
 
 @pytest.mark.parametrize("name", ["s01_basic", "s02_stockout", "s03_low_budget"])
@@ -1488,7 +1838,9 @@ def test_retry_has_one_order_one_charge_and_no_extra_time(database):
     assert after == before
     assert len(after["orders"]) == len(after["ledger"]) == 1
     assert after["spent"] == 12000
-    conflict = call(service, task, "place_order", {"item_id": "lamp", "quote_id": quote_id, "qty": 2}, action_id)
+    conflict = call(
+        service, task, "place_order", {"item_id": "lamp", "quote_id": quote_id, "qty": 2}, action_id
+    )
     assert conflict["error"]["code"] == "INVALID_ARGUMENT"
 
 
@@ -1511,7 +1863,9 @@ def test_scope_invalid_input_and_quantity_limit(database):
         service.snapshot(first["task_id"], second["agent_token"])
     quote_id = quote(service, first)
     assert buy(service, second, quote_id)["error"]["code"] == "NOT_FOUND"
-    bad = call(service, first, "place_order", {"item_id": "lamp", "quote_id": quote_id, "qty": True})
+    bad = call(
+        service, first, "place_order", {"item_id": "lamp", "quote_id": quote_id, "qty": True}
+    )
     assert bad["error"]["code"] == "INVALID_ARGUMENT"
     assert buy(service, first, quote_id)["status"] == "success"
     another = quote(service, first, "lamp_b")
@@ -1525,7 +1879,9 @@ def test_budget_deadline_and_quote_expiration(database):
     result = buy(service, task, quote(service, task))
     assert result["status"] == "approval_required"
     assert service.snapshot(task["task_id"], task["agent_token"])["spent"] == 0
-    assert buy(service, task, quote(service, task, "lamp_b"))["error"]["code"] == "OVER_POLICY_LIMIT"
+    assert (
+        buy(service, task, quote(service, task, "lamp_b"))["error"]["code"] == "OVER_POLICY_LIMIT"
+    )
     task = service.create_task(scene())
     quote_id = quote(service, task)
     with database.sessions.begin() as session:
@@ -1559,7 +1915,9 @@ def test_exception_rolls_back_stock_order_charge_and_action(database):
     service.before_commit = None
     state = service.snapshot(task["task_id"], task["agent_token"])
     assert state["spent"] == 0 and state["orders"] == []
-    assert not service.get_operation(task["task_id"], task["agent_token"], action_id)["data"]["known"]
+    assert not service.get_operation(task["task_id"], task["agent_token"], action_id)["data"][
+        "known"
+    ]
     # 继续沿用原动作号，回滚后仍能成功成交一次。
     assert buy(service, task, quote_id, action_id=action_id)["status"] == "success"
 
@@ -1578,7 +1936,10 @@ def test_two_sessions_compete_for_last_stock(database):
         return buy(service, task, quote_id)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [pool.submit(compete, first, first_quote), pool.submit(compete, second, second_quote)]
+        futures = [
+            pool.submit(compete, first, first_quote),
+            pool.submit(compete, second, second_quote),
+        ]
         results = [future.result(timeout=20) for future in futures]
     assert sum(result["status"] == "success" for result in results) == 1
     rejected = [result for result in results if result["status"] != "success"][0]
@@ -1612,7 +1973,9 @@ def test_hidden_truth_is_checked_by_judge_not_order_service(database):
     service = MarketService(database)
     task = service.create_task(scene())
     with database.sessions.begin() as session:
-        product = session.scalar(select(ProductRow).where(ProductRow.id == f"{task['instance_id']}:product_lamp_a"))
+        product = session.scalar(
+            select(ProductRow).where(ProductRow.id == f"{task['instance_id']}:product_lamp_a")
+        )
         product.data = {**product.data, "truth_condition": "used"}
     assert buy(service, task, quote(service, task))["status"] == "success"
     report = call(service, task, "finish", {"outcome": "stopped", "reason": "测试验收真值"})
@@ -1751,7 +2114,13 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from market.api.schemas import ActionRequest, CreateTask, InterventionRequest, ReportRequest, LLMCallRequest
+from market.api.schemas import (
+    ActionRequest,
+    CreateTask,
+    InterventionRequest,
+    ReportRequest,
+    LLMCallRequest,
+)
 from market.ledger.db import Database
 from market.ledger.service import AccessDenied, MarketService
 from market.scenarios import load_scenario
@@ -1803,44 +2172,80 @@ def create_app(service: MarketService | None = None) -> FastAPI:
 
     @application.get("/tasks/{task_id}")
     # 用途：鉴权后返回本任务公开状态、委托、订单、账本、用量和验收结果。
-    def task_state(task_id: str, token: str = Depends(bearer), market: MarketService = Depends(backend)):
+    def task_state(
+        task_id: str, token: str = Depends(bearer), market: MarketService = Depends(backend)
+    ):
         return market.snapshot(task_id, token)
 
     @application.post("/tasks/{task_id}/actions")
     # 用途：将 HTTP 中的动作编号、工具名和参数交给统一服务，不在路由中另写成交规则。
-    def action(task_id: str, body: ActionRequest, token: str = Depends(bearer), market: MarketService = Depends(backend)):
+    def action(
+        task_id: str,
+        body: ActionRequest,
+        token: str = Depends(bearer),
+        market: MarketService = Depends(backend),
+    ):
         return market.execute(task_id, token, body.action_id, body.tool, body.arguments)
 
     @application.get("/tasks/{task_id}/operations/{action_id}")
     # 用途：查询原动作是否已有提交结果，用于超时查证；此查询不推进市场时钟。
-    def operation(task_id: str, action_id: str, token: str = Depends(bearer), market: MarketService = Depends(backend)):
+    def operation(
+        task_id: str,
+        action_id: str,
+        token: str = Depends(bearer),
+        market: MarketService = Depends(backend),
+    ):
         return market.get_operation(task_id, token, action_id)
 
     @application.get("/tasks/{task_id}/orders")
     # 用途：返回当前任务的实际订单、账本和总花费，供页面或恢复流程核对。
-    def orders(task_id: str, token: str = Depends(bearer), market: MarketService = Depends(backend)):
+    def orders(
+        task_id: str, token: str = Depends(bearer), market: MarketService = Depends(backend)
+    ):
         state = market.snapshot(task_id, token)
         return {"orders": state["orders"], "ledger": state["ledger"], "spent": state["spent"]}
 
     @application.post("/tasks/{task_id}/finish")
     # 用途：将结构化采购报告提交给业务服务，并由独立验收器确定实际结果。
-    def finish(task_id: str, body: ReportRequest, token: str = Depends(bearer), market: MarketService = Depends(backend)):
+    def finish(
+        task_id: str,
+        body: ReportRequest,
+        token: str = Depends(bearer),
+        market: MarketService = Depends(backend),
+    ):
         return market.execute(task_id, token, body.action_id, "finish", body.report.model_dump())
 
     @application.post("/tasks/{task_id}/interventions/stockout")
     # 用途：转交人工断货请求，服务层会要求 owner 令牌并修改真实数据库库存。
-    def stockout(task_id: str, body: InterventionRequest, token: str = Depends(bearer), market: MarketService = Depends(backend)):
+    def stockout(
+        task_id: str,
+        body: InterventionRequest,
+        token: str = Depends(bearer),
+        market: MarketService = Depends(backend),
+    ):
         return market.intervene(task_id, token, body.action_id, body.listing_id)
 
     @application.post("/tasks/{task_id}/llm-calls")
     # 用途：保存执行器上报的模型调用观测，记录用量和费用估算，不改变业务预算。
-    def llm_call(task_id: str, body: LLMCallRequest, token: str = Depends(bearer), market: MarketService = Depends(backend)):
-        return market.record_llm_call(task_id, token, body.call_id, body.model_dump(exclude={"call_id"}))
+    def llm_call(
+        task_id: str,
+        body: LLMCallRequest,
+        token: str = Depends(bearer),
+        market: MarketService = Depends(backend),
+    ):
+        return market.record_llm_call(
+            task_id, token, body.call_id, body.model_dump(exclude={"call_id"})
+        )
 
     @application.get("/tasks/{task_id}/events")
     # 用途：先核对任务身份，再建立从 after 序号开始的公开 SSE 事件流。
-    async def stream(request: Request, task_id: str, after: int = Query(default=0, ge=0),
-                     token: str = Depends(bearer), market: MarketService = Depends(backend)):
+    async def stream(
+        request: Request,
+        task_id: str,
+        after: int = Query(default=0, ge=0),
+        token: str = Depends(bearer),
+        market: MarketService = Depends(backend),
+    ):
         # 在开始流式响应前验证身份，否则已经发出 200 后难以正确返回鉴权错误。
         await run_in_threadpool(market.snapshot, task_id, token)
 
@@ -1860,15 +2265,23 @@ def create_app(service: MarketService | None = None) -> FastAPI:
                     yield ": heartbeat\n\n"
                 await asyncio.sleep(0.5)
 
-        return StreamingResponse(frames(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+        return StreamingResponse(
+            frames(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"}
+        )
 
     @application.get("/")
     # 用途：页面文件已创建时返回首页，否则显示 API 就绪提示；不读取任意客户端文件路径。
     def index():
         page = ROOT / "web/index.html"
-        return FileResponse(page) if page.exists() else {"message": "API 已启动；写完 E 批页面后这里显示界面。"}
+        return (
+            FileResponse(page)
+            if page.exists()
+            else {"message": "API 已启动；写完 E 批页面后这里显示界面。"}
+        )
 
-    application.mount("/static", StaticFiles(directory=ROOT / "web", check_dir=False), name="static")
+    application.mount(
+        "/static", StaticFiles(directory=ROOT / "web", check_dir=False), name="static"
+    )
     return application
 
 
@@ -1900,7 +2313,9 @@ class MarketClient:
 
     # 用途：统一发送带任务 Bearer 令牌的 HTTP 请求，业务参数放在 JSON 请求体中。
     def _request(self, method: str, path: str, body=None):
-        return self.http.request(method, path, headers={"Authorization": f"Bearer {self.token}"}, json=body)
+        return self.http.request(
+            method, path, headers={"Authorization": f"Bearer {self.token}"}, json=body
+        )
 
     # 用途：获取并解析当前任务的公开状态，HTTP 失败时抛出异常。
     def snapshot(self) -> dict:
@@ -1932,7 +2347,11 @@ class MarketClient:
                 response = self._request("POST", f"/tasks/{self.task_id}/actions", body)
                 if response.status_code in {401, 403, 404, 422}:
                     code = "INVALID_ARGUMENT" if response.status_code == 422 else "NOT_FOUND"
-                    return {"status": "rejected", "data": None, "error": {"code": code, "message": "请求被接口拒绝"}}
+                    return {
+                        "status": "rejected",
+                        "data": None,
+                        "error": {"code": code, "message": "请求被接口拒绝"},
+                    }
                 response.raise_for_status()
                 result = response.json()
                 if result.get("status") in {"success", "rejected", "approval_required"}:
@@ -1943,8 +2362,14 @@ class MarketClient:
             resolved = self.operation(action_id)
             if resolved is not None:
                 return resolved
-        return {"status": "unknown", "data": {"action_id": action_id},
-                "error": {"code": "RESULT_UNKNOWN", "message": "暂未查证结果，保留原操作号并停止新采购"}}
+        return {
+            "status": "unknown",
+            "data": {"action_id": action_id},
+            "error": {
+                "code": "RESULT_UNKNOWN",
+                "message": "暂未查证结果，保留原操作号并停止新采购",
+            },
+        }
 ```
 
 注意上面 except 分支的 pass 表示“继续做下面的查证”，不是未实现函数。所有执行路径都有确定返回值。
@@ -2001,12 +2426,20 @@ from mcp.server.mcpserver import Context
 from market.api.client import MarketClient
 from market.sim.quotes import OfferRequest
 from market.tools import (
-    ApprovalParams, FinishParams, ListingParams, OperationParams, OrderParams,
-    PolicyParams, SearchParams, SellerParams,
+    ApprovalParams,
+    FinishParams,
+    ListingParams,
+    OperationParams,
+    OrderParams,
+    PolicyParams,
+    SearchParams,
+    SellerParams,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-mcp = MCPServer("Bazaar procurement", instructions=(ROOT / "rules/purchasing.md").read_text(encoding="utf-8"))
+mcp = MCPServer(
+    "Bazaar procurement", instructions=(ROOT / "rules/purchasing.md").read_text(encoding="utf-8")
+)
 SESSION = str(uuid4())
 
 
@@ -2014,8 +2447,11 @@ SESSION = str(uuid4())
 # 用途：首次调用时从进程环境读取当前任务身份并创建 HTTP 客户端，后续复用同一个对象。
 def client() -> MarketClient:
     # 使用独立任务的 Agent 令牌，绝不把 owner_token 或模型 API key 当业务参数。
-    return MarketClient(os.environ.get("BAZAAR_API_URL", "http://127.0.0.1:8000"),
-                        os.environ["BAZAAR_TASK_ID"], os.environ["BAZAAR_TASK_TOKEN"])
+    return MarketClient(
+        os.environ.get("BAZAAR_API_URL", "http://127.0.0.1:8000"),
+        os.environ["BAZAAR_TASK_ID"],
+        os.environ["BAZAAR_TASK_TOKEN"],
+    )
 
 
 # 用途：把 SDK 注入的请求上下文映射为当前会话内的稳定动作号，再转发同一市场 HTTP 接口。
@@ -2087,6 +2523,7 @@ def get_operation(params: OperationParams, ctx: Context) -> dict:
 def list_task_orders(ctx: Context) -> dict:
     """查看当前任务已经成交的订单和累计花费。"""
     from market.tools import Params
+
     return forward("list_task_orders", Params(), ctx)
 
 
@@ -2190,8 +2627,12 @@ class CompatibleModel:
     # 用途：从本地环境准备已有兼容模型客户端、供应商附加参数、计价配置和用量记录容器。
     def __init__(self) -> None:
         self.model = os.environ["LLM_MODEL"]
-        self.client = OpenAI(api_key=os.environ["LLM_API_KEY"], base_url=os.environ["LLM_BASE_URL"],
-                             timeout=30, max_retries=0)
+        self.client = OpenAI(
+            api_key=os.environ["LLM_API_KEY"],
+            base_url=os.environ["LLM_BASE_URL"],
+            timeout=30,
+            max_retries=0,
+        )
         self.extra = json.loads(os.environ.get("LLM_EXTRA_BODY", "{}"))
         self.metrics: list[dict] = []
         # 填供应商实际适用的每百万 token 人民币价格；未配置就明确记未知。
@@ -2218,20 +2659,33 @@ class CompatibleModel:
         # 最多重试三次，即最多四次传输尝试。只有限流、服务故障和连接错误重试。
         for attempt in range(4):
             started = time.monotonic()
-            record = {"call_id": str(uuid4()), "model": self.model, "input_tokens": None,
-                      "output_tokens": None, "duration_ms": 0, "estimated_cost_yuan": None, "error_code": None}
+            record = {
+                "call_id": str(uuid4()),
+                "model": self.model,
+                "input_tokens": None,
+                "output_tokens": None,
+                "duration_ms": 0,
+                "estimated_cost_yuan": None,
+                "error_code": None,
+            }
             try:
                 response = self.client.chat.completions.create(
-                    model=self.model, messages=messages, tools=tools, tool_choice="auto",
-                    max_completion_tokens=1024, extra_body=self.extra,
+                    model=self.model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    max_completion_tokens=1024,
+                    extra_body=self.extra,
                 )
                 record["model"] = response.model
                 if response.usage is not None:
                     record["input_tokens"] = response.usage.prompt_tokens
                     record["output_tokens"] = response.usage.completion_tokens
                     if self.input_price is not None and self.output_price is not None:
-                        amount = (Decimal(response.usage.prompt_tokens) * self.input_price +
-                                  Decimal(response.usage.completion_tokens) * self.output_price) / Decimal(1000000)
+                        amount = (
+                            Decimal(response.usage.prompt_tokens) * self.input_price
+                            + Decimal(response.usage.completion_tokens) * self.output_price
+                        ) / Decimal(1000000)
                         record["estimated_cost_yuan"] = str(amount)
                 message = response.choices[0].message
                 calls = []
@@ -2240,8 +2694,16 @@ class CompatibleModel:
                     if call.type != "function":
                         raise ValueError("兼容层收到不支持的工具调用类型")
                     calls.append(ToolCall(call.id, call.function.name, call.function.arguments))
-                    tool_messages.append({"id": call.id, "type": "function", "function": {
-                        "name": call.function.name, "arguments": call.function.arguments}})
+                    tool_messages.append(
+                        {
+                            "id": call.id,
+                            "type": "function",
+                            "function": {
+                                "name": call.function.name,
+                                "arguments": call.function.arguments,
+                            },
+                        }
+                    )
                 assistant = {"role": "assistant", "content": message.content}
                 if tool_messages:
                     assistant["tool_calls"] = tool_messages
@@ -2252,10 +2714,14 @@ class CompatibleModel:
                 return ModelTurn(assistant, calls)
             except (APIConnectionError, APIStatusError) as error:
                 record["error_code"] = type(error).__name__
-                retryable = isinstance(error, APIConnectionError) or error.status_code == 429 or error.status_code >= 500
+                retryable = (
+                    isinstance(error, APIConnectionError)
+                    or error.status_code == 429
+                    or error.status_code >= 500
+                )
                 if not retryable or attempt == 3:
                     raise
-                time.sleep(min(2 ** attempt, 8))
+                time.sleep(min(2**attempt, 8))
             except Exception as error:
                 record["error_code"] = type(error).__name__
                 raise
@@ -2282,18 +2748,38 @@ ROOT = Path(__file__).resolve().parents[1]
 # 用途：把采购规则与公开委托、已有订单和花费组成初始消息，不加入场景答案或隐藏真值。
 def initial_messages(snapshot: dict) -> list[dict]:
     rules = (ROOT / "rules/purchasing.md").read_text(encoding="utf-8")
-    return [{"role": "system", "content": rules},
-            {"role": "user", "content": json.dumps({"mandate": snapshot["mandate"],
-                "orders": snapshot["orders"], "spent": snapshot["spent"],
-                "instruction": "请调查完整市场并完成委托；使用 finish 提交包含订单号或停止依据的报告。"}, ensure_ascii=False)}]
+    return [
+        {"role": "system", "content": rules},
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "mandate": snapshot["mandate"],
+                    "orders": snapshot["orders"],
+                    "spent": snapshot["spent"],
+                    "instruction": "请调查完整市场并完成委托；使用 finish 提交包含订单号或停止依据的报告。",
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
 
 
 # 用途：在已有对话后附上服务端当前进度，让模型基于真实订单、花费和时刻继续决策。
 def next_messages(history: list[dict], snapshot: dict) -> list[dict]:
     # M1 限制总轮数与总消息体长度，避免无界堆积；M3 再做证据账压缩。
-    progress = {"role": "system", "content": "服务端当前进度：" + json.dumps({
-        "spent": snapshot["spent"], "orders": snapshot["orders"],
-        "sim_time": snapshot["sim_time"]}, ensure_ascii=False)}
+    progress = {
+        "role": "system",
+        "content": "服务端当前进度："
+        + json.dumps(
+            {
+                "spent": snapshot["spent"],
+                "orders": snapshot["orders"],
+                "sim_time": snapshot["sim_time"],
+            },
+            ensure_ascii=False,
+        ),
+    }
     return history + [progress]
 ```
 
@@ -2308,9 +2794,17 @@ from market.tools import TOOL_DESCRIPTIONS, TOOL_MODELS
 
 # 用途：从共同的 Pydantic 参数模型生成函数工具 JSON Schema，保持模型与服务端输入约定一致。
 def model_tools() -> list[dict]:
-    return [{"type": "function", "function": {"name": name,
-             "description": TOOL_DESCRIPTIONS[name], "parameters": model.model_json_schema()}}
-            for name, model in TOOL_MODELS.items()]
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": TOOL_DESCRIPTIONS[name],
+                "parameters": model.model_json_schema(),
+            },
+        }
+        for name, model in TOOL_MODELS.items()
+    ]
 ```
 
 ### 文件：D:\bazaar-agent\agent\llm\fake.py
@@ -2353,8 +2847,17 @@ class FakeModel:
     def _reply(self, name: str, arguments: dict) -> ModelTurn:
         call = ToolCall(str(uuid4()), name, json.dumps(arguments, ensure_ascii=False))
         self.pending = (name, arguments)
-        message = {"role": "assistant", "content": None, "tool_calls": [{"id": call.id,
-                   "type": "function", "function": {"name": name, "arguments": call.arguments}}]}
+        message = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": call.arguments},
+                }
+            ],
+        }
         return ModelTurn(message, [call])
 
     # 用途：读取上一个公开工具结果，更新候选、政策、已购数量、失败挂牌和报价状态。
@@ -2395,30 +2898,74 @@ class FakeModel:
         if sellers:
             return self._reply("get_policy", {"seller_id": sellers[0]})
         if self.quote is not None:
-            return self._reply("place_order", {"item_id": self.selected["item_id"],
-                "quote_id": self.quote["quote_id"], "qty": self.quote["qty"]})
+            return self._reply(
+                "place_order",
+                {
+                    "item_id": self.selected["item_id"],
+                    "quote_id": self.quote["quote_id"],
+                    "qty": self.quote["qty"],
+                },
+            )
         plan = []
         minimum = self.spent
         for item in self.mandate["items"]:
             remaining = item["qty"] - self.purchased[item["item_id"]]
             if remaining == 0:
                 continue
-            candidates = sorted((x for x in self.catalog if x["listing_id"] not in self.excluded
-                and x["stock"] >= remaining and matches_item(item["item_id"], x) and public_new_claim(x)),
+            candidates = sorted(
+                (
+                    x
+                    for x in self.catalog
+                    if x["listing_id"] not in self.excluded
+                    and x["stock"] >= remaining
+                    and matches_item(item["item_id"], x)
+                    and public_new_claim(x)
+                ),
                 # 回调用途：排序回调按公开单价排列候选，不读取隐藏底价或商品真值。
-                key=lambda x: x["list_price"])
+                key=lambda x: x["list_price"],
+            )
             if not candidates:
-                return self._reply("finish", {"outcome": "stopped", "reason": "公开候选无法满足剩余需求", "evidence_ids": self.evidence, "order_ids": self.order_ids})
+                return self._reply(
+                    "finish",
+                    {
+                        "outcome": "stopped",
+                        "reason": "公开候选无法满足剩余需求",
+                        "evidence_ids": self.evidence,
+                        "order_ids": self.order_ids,
+                    },
+                )
             listing = candidates[0]
             minimum += remaining * listing["list_price"]
             plan.append((item, listing, remaining))
         if not plan:
-            return self._reply("finish", {"outcome": "completed", "reason": "订单已齐：" + ",".join(self.order_ids), "evidence_ids": self.evidence, "order_ids": self.order_ids})
+            return self._reply(
+                "finish",
+                {
+                    "outcome": "completed",
+                    "reason": "订单已齐：" + ",".join(self.order_ids),
+                    "evidence_ids": self.evidence,
+                    "order_ids": self.order_ids,
+                },
+            )
         if minimum > self.mandate["budget_total"]:
-            return self._reply("finish", {"outcome": "stopped", "reason": f"公开固定价政策及候选表明整套至少需要{minimum}分，超过预算", "evidence_ids": self.evidence, "order_ids": self.order_ids})
+            return self._reply(
+                "finish",
+                {
+                    "outcome": "stopped",
+                    "reason": f"公开固定价政策及候选表明整套至少需要{minimum}分，超过预算",
+                    "evidence_ids": self.evidence,
+                    "order_ids": self.order_ids,
+                },
+            )
         self.selected, listing, remaining = plan[0]
-        return self._reply("make_offer", {"listing_id": listing["listing_id"],
-            "unit_price": listing["list_price"], "qty": remaining})
+        return self._reply(
+            "make_offer",
+            {
+                "listing_id": listing["listing_id"],
+                "unit_price": listing["list_price"],
+                "qty": remaining,
+            },
+        )
 ```
 
 ### 文件：D:\bazaar-agent\agent\loop.py
@@ -2454,7 +3001,9 @@ def semantic(value):
 # 类说明：采购执行循环，协调模型和市场客户端，并管理执行上限、轨迹与未决动作。
 class AgentLoop:
     # 用途：保存模型、市场客户端、执行上限和演示选项，初始化消息历史、轨迹与未决动作。
-    def __init__(self, client, model, max_turns=30, max_tools=80, max_cost=None, pause_after_quote=False):
+    def __init__(
+        self, client, model, max_turns=30, max_tools=80, max_cost=None, pause_after_quote=False
+    ):
         self.client = client
         self.model = model
         self.max_turns = max_turns
@@ -2470,7 +3019,16 @@ class AgentLoop:
         # 正常受限停止要提交报告；未知成交结果时由主循环直接返回，不能混为确定停止。
         action_id = str(uuid4())
         orders = self.client.snapshot()["orders"]
-        result = self.client.execute(action_id, "finish", {"outcome": "stopped", "reason": reason, "evidence_ids": [], "order_ids": [order["id"] for order in orders]})
+        result = self.client.execute(
+            action_id,
+            "finish",
+            {
+                "outcome": "stopped",
+                "reason": reason,
+                "evidence_ids": [],
+                "order_ids": [order["id"] for order in orders],
+            },
+        )
         self.trace.append({"action_id": action_id, "tool": "finish", "result": result})
         return {"reason": reason, "result": result, "pending": self.pending}
 
@@ -2489,8 +3047,14 @@ class AgentLoop:
             if state["status"] != "running":
                 return {"reason": "服务端任务已结束", "state": state, "pending": self.pending}
             metrics = getattr(self.model, "metrics", [])
-            estimated = sum((Decimal(record["estimated_cost_yuan"]) for record in metrics
-                             if record.get("estimated_cost_yuan") is not None), Decimal(0))
+            estimated = sum(
+                (
+                    Decimal(record["estimated_cost_yuan"])
+                    for record in metrics
+                    if record.get("estimated_cost_yuan") is not None
+                ),
+                Decimal(0),
+            )
             if self.max_cost is not None and estimated >= self.max_cost:
                 return self._stop("达到模型费用估算上限")
             if len(json.dumps(self.history, ensure_ascii=False)) > 48000:
@@ -2504,7 +3068,9 @@ class AgentLoop:
                 silent_turns += 1
                 if silent_turns >= 3:
                     return self._stop("模型连续未通过工具提交有效动作")
-                self.history.append({"role": "user", "content": "请继续调用工具，或使用 finish 提交结构化报告。"})
+                self.history.append(
+                    {"role": "user", "content": "请继续调用工具，或使用 finish 提交结构化报告。"}
+                )
                 continue
             silent_turns = 0
             terminal = None
@@ -2512,7 +3078,13 @@ class AgentLoop:
                 # 先处理已经进入停止状态的本批剩余调用，不再产生任何副作用。
                 if terminal is not None:
                     result = rejected("NOT_EXECUTED", "本批前面的动作已经结束执行")
-                    self.history.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result, ensure_ascii=False)})
+                    self.history.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call.id,
+                            "content": json.dumps(result, ensure_ascii=False),
+                        }
+                    )
                     continue
                 if tool_count >= self.max_tools:
                     terminal = {"reason": "达到工具动作上限"}
@@ -2523,26 +3095,61 @@ class AgentLoop:
                         arguments = json.loads(call.arguments)
                         if not isinstance(arguments, dict) or call.name not in TOOL_MODELS:
                             raise ValueError("工具或参数形状不正确")
-                        arguments = TOOL_MODELS[call.name].model_validate(arguments).model_dump(mode="json")
+                        arguments = (
+                            TOOL_MODELS[call.name].model_validate(arguments).model_dump(mode="json")
+                        )
                     except (ValueError, TypeError, ValidationError):
-                        result = rejected("INVALID_ARGUMENT", "工具名称、JSON 参数、字段或类型不正确，请修正")
+                        result = rejected(
+                            "INVALID_ARGUMENT", "工具名称、JSON 参数、字段或类型不正确，请修正"
+                        )
                     else:
                         action_id = str(uuid4())
                         # 分配一次后交给客户端查证和重发；不为网络重试重新生成 UUID。
                         result = self.client.execute(action_id, call.name, arguments)
-                        self.trace.append({"action_id": action_id, "tool_call_id": call.id,
-                                           "tool": call.name, "arguments": arguments, "result": result})
+                        self.trace.append(
+                            {
+                                "action_id": action_id,
+                                "tool_call_id": call.id,
+                                "tool": call.name,
+                                "arguments": arguments,
+                                "result": result,
+                            }
+                        )
                         if result["status"] == "unknown":
-                            self.pending = {"action_id": action_id, "tool": call.name, "arguments": arguments}
-                            terminal = {"reason": "结果未知，保留原操作号并停止新采购", "pending": self.pending}
+                            self.pending = {
+                                "action_id": action_id,
+                                "tool": call.name,
+                                "arguments": arguments,
+                            }
+                            terminal = {
+                                "reason": "结果未知，保留原操作号并停止新采购",
+                                "pending": self.pending,
+                            }
                         elif call.name == "finish" and result["status"] == "success":
-                            terminal = {"reason": "已提交独立验收", "result": result, "pending": None}
-                        if (self.pause_after_quote and call.name == "make_offer" and result["status"] == "success"
-                                and result["data"].get("status") == "accepted"):
+                            terminal = {
+                                "reason": "已提交独立验收",
+                                "result": result,
+                                "pending": None,
+                            }
+                        if (
+                            self.pause_after_quote
+                            and call.name == "make_offer"
+                            and result["status"] == "success"
+                            and result["data"].get("status") == "accepted"
+                        ):
                             input("已取得报价。可在网页点断货，操作完成后回车继续：")
-                self.history.append({"role": "tool", "tool_call_id": call.id,
-                                     "content": json.dumps(result, ensure_ascii=False)})
-                fingerprint = json.dumps(semantic({"tool": call.name, "result": result}), sort_keys=True, ensure_ascii=False)
+                self.history.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.id,
+                        "content": json.dumps(result, ensure_ascii=False),
+                    }
+                )
+                fingerprint = json.dumps(
+                    semantic({"tool": call.name, "result": result}),
+                    sort_keys=True,
+                    ensure_ascii=False,
+                )
                 repeated = repeated + 1 if fingerprint in observed else 0
                 observed.add(fingerprint)
                 if repeated >= 4 and terminal is None:
@@ -2581,7 +3188,9 @@ ROOT = Path(__file__).resolve().parents[1]
 # 退出时保存公开轨迹、未决动作和用量，补写模型调用记录并释放客户端。
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scenario", choices=["s01_basic", "s02_stockout", "s03_low_budget"], default="s01_basic")
+    parser.add_argument(
+        "--scenario", choices=["s01_basic", "s02_stockout", "s03_low_budget"], default="s01_basic"
+    )
     parser.add_argument("--real-llm", action="store_true")
     parser.add_argument("--pause-after-quote", action="store_true")
     parser.add_argument("--max-turns", type=int, default=30)
@@ -2592,7 +3201,9 @@ def main() -> None:
     if bool(task_id) != bool(token):
         raise ValueError("BAZAAR_TASK_ID 和 BAZAAR_TASK_TOKEN 必须同时设置或同时不设置")
     if task_id is None:
-        response = httpx.post(base_url + "/tasks", json={"scenario": arguments.scenario}, timeout=20)
+        response = httpx.post(
+            base_url + "/tasks", json={"scenario": arguments.scenario}, timeout=20
+        )
         response.raise_for_status()
         created = response.json()
         task_id, token = created["task_id"], created["agent_token"]
@@ -2603,12 +3214,21 @@ def main() -> None:
     state = client.snapshot()
     model = CompatibleModel() if arguments.real_llm else FakeModel(state["mandate"])
     max_cost = os.environ.get("LLM_MAX_ESTIMATED_YUAN") or None
-    if arguments.real_llm and max_cost is not None and (model.input_price is None or model.output_price is None):
+    if (
+        arguments.real_llm
+        and max_cost is not None
+        and (model.input_price is None or model.output_price is None)
+    ):
         model.close()
         client.close()
         raise ValueError("使用费用估算上限前，必须配置输入和输出的每百万 token 单价")
-    loop = AgentLoop(client, model, max_turns=arguments.max_turns, max_cost=max_cost,
-                     pause_after_quote=arguments.pause_after_quote)
+    loop = AgentLoop(
+        client,
+        model,
+        max_turns=arguments.max_turns,
+        max_cost=max_cost,
+        pause_after_quote=arguments.pause_after_quote,
+    )
     result = None
     failure = None
     try:
@@ -2627,10 +3247,19 @@ def main() -> None:
                 print("一条模型调用记录暂未写入服务端，已保存在本地日志")
         log_dir = ROOT / "logs"
         log_dir.mkdir(exist_ok=True)
-        document = {"task_id": task_id, "mode": "real" if arguments.real_llm else "fake",
-                    "result": result, "error_code": failure, "pending": loop.pending,
-                    "llm_calls": records, "trace": loop.trace, "messages": loop.history}
-        (log_dir / f"{task_id}.json").write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+        document = {
+            "task_id": task_id,
+            "mode": "real" if arguments.real_llm else "fake",
+            "result": result,
+            "error_code": failure,
+            "pending": loop.pending,
+            "llm_calls": records,
+            "trace": loop.trace,
+            "messages": loop.history,
+        }
+        (log_dir / f"{task_id}.json").write_text(
+            json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         print("公开轨迹已写入：", log_dir / f"{task_id}.json")
         model.close()
         client.close()
@@ -2688,8 +3317,18 @@ from market.api.client import MarketClient
 # 用途：把测试指定的工具名和参数组装成完整模型回复，模拟一轮可能包含多个工具调用。
 def scripted_turn(*calls):
     objects = [ToolCall(str(uuid4()), name, json.dumps(arguments)) for name, arguments in calls]
-    assistant = {"role": "assistant", "content": None, "tool_calls": [{"id": call.id,
-        "type": "function", "function": {"name": call.name, "arguments": call.arguments}} for call in objects]}
+    assistant = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {"name": call.name, "arguments": call.arguments},
+            }
+            for call in objects
+        ],
+    }
     return ModelTurn(assistant, objects)
 
 
@@ -2708,15 +3347,20 @@ class ScriptedModel:
 # 用途：经实际 FastAPI 路由创建测试任务，并返回使用该任务令牌的 HTTP 客户端。
 def setup_client(http, scenario="s01_basic"):
     task = http.post("/tasks", json={"scenario": scenario}).json()
-    client = MarketClient("http://testserver", task["task_id"], task["agent_token"], transport_client=http)
+    client = MarketClient(
+        "http://testserver", task["task_id"], task["agent_token"], transport_client=http
+    )
     return task, client
 
 
-@pytest.mark.parametrize("scenario,outcome", [
-    ("s01_basic", "completed_within_budget"),
-    ("s02_stockout", "completed_within_budget"),
-    ("s03_low_budget", "correct_stop"),
-])
+@pytest.mark.parametrize(
+    "scenario,outcome",
+    [
+        ("s01_basic", "completed_within_budget"),
+        ("s02_stockout", "completed_within_budget"),
+        ("s03_low_budget", "correct_stop"),
+    ],
+)
 # 用途：让假模型通过完整 HTTP 接口执行三个场景，核对验收结果及模型上下文的信息边界。
 def test_fake_model_through_http(service, scenario, outcome):
     with TestClient(create_app(service)) as http:
@@ -2736,11 +3380,27 @@ def test_http_scope_and_owner_intervention(service):
     with TestClient(create_app(service)) as http:
         task, client = setup_client(http)
         other, _ = setup_client(http)
-        assert http.get(f"/tasks/{task['task_id']}", headers={"Authorization": f"Bearer {other['agent_token']}"}).status_code == 404
+        assert (
+            http.get(
+                f"/tasks/{task['task_id']}",
+                headers={"Authorization": f"Bearer {other['agent_token']}"},
+            ).status_code
+            == 404
+        )
         path = f"/tasks/{task['task_id']}/interventions/stockout"
         body = {"action_id": str(uuid4()), "listing_id": "lamp_a"}
-        assert http.post(path, json=body, headers={"Authorization": f"Bearer {task['agent_token']}"}).status_code == 404
-        assert http.post(path, json=body, headers={"Authorization": f"Bearer {task['owner_token']}"}).json()["status"] == "success"
+        assert (
+            http.post(
+                path, json=body, headers={"Authorization": f"Bearer {task['agent_token']}"}
+            ).status_code
+            == 404
+        )
+        assert (
+            http.post(
+                path, json=body, headers={"Authorization": f"Bearer {task['owner_token']}"}
+            ).json()["status"]
+            == "success"
+        )
         listing = client.execute(str(uuid4()), "get_listing", {"listing_id": "lamp_a"})
         assert listing["data"]["stock"] == 0
 
@@ -2749,7 +3409,9 @@ def test_http_scope_and_owner_intervention(service):
 def test_response_lost_after_commit_queries_original_action(service):
     with TestClient(create_app(service)) as http:
         task, normal = setup_client(http)
-        offered = normal.execute(str(uuid4()), "make_offer", {"listing_id": "lamp_a", "unit_price": 12000, "qty": 1})
+        offered = normal.execute(
+            str(uuid4()), "make_offer", {"listing_id": "lamp_a", "unit_price": 12000, "qty": 1}
+        )
         quote_id = offered["data"]["quote"]["quote_id"]
 
         # 类说明：包装真实测试 HTTP 客户端，专门模拟一次提交后响应丢失。
@@ -2759,14 +3421,22 @@ def test_response_lost_after_commit_queries_original_action(service):
             # 用途：先让真实测试接口完成请求，再丢弃一次下单响应并抛出超时，制造提交后的传输故障。
             def request(self, method, path, **kwargs):
                 response = http.request(method, path, **kwargs)
-                if method == "POST" and kwargs.get("json", {}).get("tool") == "place_order" and not self.lost:
+                if (
+                    method == "POST"
+                    and kwargs.get("json", {}).get("tool") == "place_order"
+                    and not self.lost
+                ):
                     self.lost = True
                     raise httpx.ReadTimeout("响应在服务端提交后丢失")
                 return response
 
-        client = MarketClient("http://testserver", task["task_id"], task["agent_token"], LoseOneResponse())
+        client = MarketClient(
+            "http://testserver", task["task_id"], task["agent_token"], LoseOneResponse()
+        )
         action_id = str(uuid4())
-        result = client.execute(action_id, "place_order", {"item_id": "lamp", "quote_id": quote_id, "qty": 1})
+        result = client.execute(
+            action_id, "place_order", {"item_id": "lamp", "quote_id": quote_id, "qty": 1}
+        )
         assert result["status"] == "success"
         state = normal.snapshot()
         assert len(state["orders"]) == len(state["ledger"]) == 1
@@ -2777,10 +3447,14 @@ def test_response_lost_after_commit_queries_original_action(service):
 def test_finish_blocks_later_calls_in_same_reply(service):
     with TestClient(create_app(service)) as http:
         _, client = setup_client(http)
-        model = ScriptedModel([scripted_turn(
-            ("finish", {"outcome": "completed", "reason": "错误声称已经完成"}),
-            ("make_offer", {"listing_id": "lamp_a", "unit_price": 12000, "qty": 1}),
-        )])
+        model = ScriptedModel(
+            [
+                scripted_turn(
+                    ("finish", {"outcome": "completed", "reason": "错误声称已经完成"}),
+                    ("make_offer", {"listing_id": "lamp_a", "unit_price": 12000, "qty": 1}),
+                )
+            ]
+        )
         loop = AgentLoop(client, model)
         loop.run()
         assert len(loop.trace) == 1
@@ -2792,10 +3466,14 @@ def test_finish_blocks_later_calls_in_same_reply(service):
 def test_invalid_parameters_are_returned_to_model(service):
     with TestClient(create_app(service)) as http:
         _, client = setup_client(http)
-        model = ScriptedModel([
-            scripted_turn(("place_order", {"item_id": "lamp", "quote_id": "none", "qty": True})),
-            scripted_turn(("finish", {"outcome": "stopped", "reason": "停止测试"})),
-        ])
+        model = ScriptedModel(
+            [
+                scripted_turn(
+                    ("place_order", {"item_id": "lamp", "quote_id": "none", "qty": True})
+                ),
+                scripted_turn(("finish", {"outcome": "stopped", "reason": "停止测试"})),
+            ]
+        )
         loop = AgentLoop(client, model)
         loop.run()
         results = [json.loads(m["content"]) for m in loop.history if m["role"] == "tool"]
@@ -2815,7 +3493,9 @@ def test_unknown_result_stops_without_new_purchase_id(service, monkeypatch):
             return {"status": "unknown", "data": None, "error": None}
 
         monkeypatch.setattr(client, "execute", unknown)
-        model = ScriptedModel([scripted_turn(("place_order", {"item_id": "lamp", "quote_id": "q_1", "qty": 1}))])
+        model = ScriptedModel(
+            [scripted_turn(("place_order", {"item_id": "lamp", "quote_id": "q_1", "qty": 1}))]
+        )
         loop = AgentLoop(client, model)
         result = loop.run()
         assert len(received) == 1
@@ -2862,13 +3542,25 @@ def test_mcp_reads_public_fields_and_cannot_bypass_budget(service, monkeypatch):
         async def exercise():
             # Client(server) 使用 SDK 提供的内存传输，仍会经过 MCP 协议。
             async with Client(server.mcp) as client:
-                listing = await client.call_tool("get_listing", {"params": {"listing_id": "lamp_a"}})
+                listing = await client.call_tool(
+                    "get_listing", {"params": {"listing_id": "lamp_a"}}
+                )
                 public = json.dumps(listing.structured_content, ensure_ascii=False)
-                assert "lamp_a" in public and "reserve_price" not in public and "truth_condition" not in public
-                offered = await client.call_tool("make_offer", {"params": {"listing_id": "lamp_a", "unit_price": 12000, "qty": 1}})
+                assert (
+                    "lamp_a" in public
+                    and "reserve_price" not in public
+                    and "truth_condition" not in public
+                )
+                offered = await client.call_tool(
+                    "make_offer",
+                    {"params": {"listing_id": "lamp_a", "unit_price": 12000, "qty": 1}},
+                )
                 quote_id = offered.structured_content["data"]["quote"]["quote_id"]
-                result = await client.call_tool("place_order", {"params": {"item_id": "lamp", "quote_id": quote_id, "qty": 1}})
+                result = await client.call_tool(
+                    "place_order", {"params": {"item_id": "lamp", "quote_id": quote_id, "qty": 1}}
+                )
                 assert result.structured_content["status"] == "approval_required"
+
         asyncio.run(exercise())
         assert backend.snapshot()["spent"] == 0
 ```
