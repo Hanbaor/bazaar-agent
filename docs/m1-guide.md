@@ -4,11 +4,13 @@
 
 注释阅读约定：每个函数或方法定义前都有中文用途说明，包括初始化方法、测试辅助函数、异步函数和页面回调。复杂函数还解释输入来源、输出结果、执行顺序与关键判断；类定义前说明它保存什么或负责什么。
 
-按你最新明确的要求，交付内容只写入这份文档，不替你修改业务源码，不运行测试，也不调用真实模型。文中的代码属于待你写入并验收的参考实现，不能把文档存在当作 M1 功能已经完成。
+最初按你的要求，交付内容只写入这份文档，由你编写业务源码并运行测试。文档中的参考代码不能单独作为功能已经完成的证据。
+
+2026-10-31 更新：你已明确授权助手补齐 M1.4 并执行测试。本轮对 C 批补充 HTTP/MCP 测试、修正 SDK 结构化输出并运行本地验收，实际结果记录在 `D:\bazaar-agent\docs\notes\m1.4-validation.md`。真实模型仍由你手动调用，D、E 批也不能因为参考代码已存在就视为完成。
 
 ## 0 先核对前面究竟完成了什么
 
-以下对照依据现有文件和你之前贴出的运行记录，本轮没有重新执行测试。
+以下记录的是最初编写教程时的基线，不能作为本轮验收后的最新进度。M1.4 的实际实现和本地验收结果见 `D:\bazaar-agent\docs\notes\m1.4-validation.md`。
 
 | 计划项 | 能确认的已有内容 | 尚需完成或补充的内容 |
 | --- | --- | --- |
@@ -2037,6 +2039,47 @@ uv run --env-file .env pytest tests/test_transactions.py
 
 M1 采用本地能力令牌：owner_token 用于人工断货，agent_token 用于普通工具。令牌不传给模型，不写进事件。M4 再接正式账户和限额。下单权限始终由服务端检查。
 
+### C 的目标、文件顺序和依赖
+
+当前 B 批已经由你提供了三个参考场景通过、51 个测试通过的记录。C 批要实现的是：另一个进程能够通过接口搜索、询价、下单，最终仍由原来的 MarketService 修改同一个 PostgreSQL 数据库。默认由你按教程编写；本轮已按你的明确授权补齐 C 批测试并执行验收，结果另记在 `D:\bazaar-agent\docs\notes\m1.4-validation.md`。
+
+| 组件 | 本批承担的职责 | 与后面 Agent 的关系 |
+| --- | --- | --- |
+| FastAPI | 定义任务、动作、查证和事件的 HTTP 接口，读取请求并交给 Service | Agent 工作进程通过 HTTP 调用这些接口 |
+| Uvicorn | 启动并运行 FastAPI 应用，监听本机 8000 端口 | 让 Agent 和 Inspector 使用的市场服务持续运行 |
+| httpx / MarketClient | 携带当前任务身份发出 HTTP 请求；遇到传输失败先查原动作，再沿用原动作号重发 | Agent 和 MCP 适配层共同复用此客户端 |
+| MCPServer | 用工具名、说明和参数格式暴露同一套能力，再转成 HTTP 调用 | 供支持 MCP 的外部客户端接入市场 |
+
+两条路径要分清：M1.5 的项目自有 Agent 使用 `Agent → MarketClient → FastAPI → MarketService → PostgreSQL`；外部 MCP 客户端使用 `MCP 客户端 → MCPServer → MarketClient → FastAPI → MarketService → PostgreSQL`。接通 MCP 本身不会开始模型决策，模型选择工具的循环在 D 批编写。
+
+本批按下列顺序写完 9 个文件。每个业务文件的完整代码就在本节下方；两份测试的完整代码位于第 6 节的 `D:\bazaar-agent\tests\test_api.py` 和 `D:\bazaar-agent\tests\test_mcp.py` 标题下，它们不依赖尚未编写的 Agent。
+
+1. `D:\bazaar-agent\market\api\__init__.py`
+2. `D:\bazaar-agent\market\api\schemas.py`
+3. `D:\bazaar-agent\market\api\app.py`
+4. `D:\bazaar-agent\market\api\client.py`
+5. `D:\bazaar-agent\rules\purchasing.md`
+6. `D:\bazaar-agent\mcp_server\__init__.py`
+7. `D:\bazaar-agent\mcp_server\server.py`
+8. `D:\bazaar-agent\tests\test_api.py`
+9. `D:\bazaar-agent\tests\test_mcp.py`
+
+注意 `D:\bazaar-agent\market\rules.py` 是上一批的 Python 商品匹配函数；本批的 `D:\bazaar-agent\rules\purchasing.md` 是给模型和 MCP 客户端读取的采购规则文本，二者用途和路径不同。
+
+先在 WSL 项目根目录安装 C 批所需依赖：
+
+```bash
+# 更新项目依赖和 uv.lock；已有数据库、Pydantic 和模型 SDK 继续保留。
+cd /mnt/d/bazaar-agent
+uv add fastapi "uvicorn[standard]" httpx "mcp[cli]>=2,<3"
+
+# Inspector 是 Node.js 工具，启动它的 WSL 终端需要能找到 node 和 npx。
+node --version
+npx --version
+```
+
+`mcp[cli]>=2,<3` 与下方的 MCPServer 导入路径配套。Inspector 的 Node.js 要求以其[官方安装说明](https://github.com/modelcontextprotocol/inspector)为准；Python 接口测试不依赖 Inspector 或 Node.js。依赖安装命令会更新 `D:\bazaar-agent\pyproject.toml` 和 `D:\bazaar-agent\uv.lock`，两个文件后面一起提交。
+
 ### 文件：D:\bazaar-agent\market\api\__init__.py
 
 WSL：/mnt/d/bazaar-agent/market/api/__init__.py
@@ -2050,7 +2093,8 @@ WSL：/mnt/d/bazaar-agent/market/api/__init__.py
 WSL：/mnt/d/bazaar-agent/market/api/schemas.py
 
 ```python
-# HTTP 外层请求模型。具体工具参数再由 market.tools 校验。
+# 本模块属于 HTTP 接口层，声明客户端可以提交的外层请求数据。
+# FastAPI 先校验这些模型，Service 再用 market.tools 校验具体工具参数。
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -2103,7 +2147,8 @@ class LLMCallRequest(RequestModel):
 WSL：/mnt/d/bazaar-agent/market/api/app.py
 
 ```python
-# HTTP 只组织输入、身份与输出，不重复实现预算或库存规则。
+# 本模块属于 HTTP 接口层：Uvicorn 加载 app，各路由再调用统一的 MarketService。
+# 接口只处理请求、身份和响应；预算、库存、动作去重及订单事务继续由 Service 负责。
 import asyncio
 import json
 from contextlib import asynccontextmanager
@@ -2118,8 +2163,8 @@ from market.api.schemas import (
     ActionRequest,
     CreateTask,
     InterventionRequest,
-    ReportRequest,
     LLMCallRequest,
+    ReportRequest,
 )
 from market.ledger.db import Database
 from market.ledger.service import AccessDenied, MarketService
@@ -2293,7 +2338,8 @@ app = create_app()
 WSL：/mnt/d/bazaar-agent/market/api/client.py
 
 ```python
-# Agent 与 MCP 共用的 HTTP 客户端。传输失败时先查证，重发仍沿用原动作号。
+# 本模块属于客户端层，供 Agent 工作进程和 MCP 适配层通过 HTTP 调用市场。
+# 它不直接读写数据库；传输失败时先查证，重发仍沿用原动作号。
 import httpx
 
 
@@ -2413,8 +2459,13 @@ WSL：/mnt/d/bazaar-agent/mcp_server/server.py
 
 下面采用 MCP Python SDK v2 的 MCPServer 与 Context 接口。Context 由 SDK 注入，不会出现在模型可填的参数中。MCP 参数在 params 对象内，仍复用相同的 Pydantic 模型。
 
+本轮实际运行的 SDK 为 2.3.0；该版本使用裸 dict 返回注解时只生成文本内容，structured_content 为 None。因此下方工具统一返回 dict[str, object]，明确字符串键和允许的业务值，使 SDK 生成结构化输出。此问题已由真实协议调用复现并修正，不能仅凭 Python 语法检查推断工具结果格式正确。
+
 ```python
-# MCP 只转接，不持有数据库连接，也不另写成交规则。
+# 本模块属于 MCP 适配层，由 MCP 客户端通过 stdio 启动并调用已注册的工具。
+# 每个工具只转交 MarketClient，不持有数据库连接，也不另写成交规则。
+# 工具返回 dict[str, object]，让已安装的 SDK 2.3 同时提供文本与 structured_content。
+# object 表示结果值可以是字符串、数字、列表或嵌套字典，不是把内部数据库对象直接暴露出去。
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -2455,7 +2506,7 @@ def client() -> MarketClient:
 
 
 # 用途：把 SDK 注入的请求上下文映射为当前会话内的稳定动作号，再转发同一市场 HTTP 接口。
-def forward(name: str, params, ctx: Context) -> dict:
+def forward(name: str, params, ctx: Context) -> dict[str, object]:
     # 同一 stdio 进程中的同一请求映射到同一动作号；HTTP 重发也沿用这个号。
     # M2 才验证跨进程恢复，不能把此处的会话内映射宣称为持久化恢复。
     action_id = str(uuid5(NAMESPACE_URL, f"{SESSION}:{ctx.request_id}"))
@@ -2464,63 +2515,63 @@ def forward(name: str, params, ctx: Context) -> dict:
 
 @mcp.tool()
 # 用途：将 MCP 搜索参数转交市场服务，返回公开候选列表。
-def search_listings(params: SearchParams, ctx: Context) -> dict:
+def search_listings(params: SearchParams, ctx: Context) -> dict[str, object]:
     """搜索公开挂牌。params={} 表示不限制条件。"""
     return forward("search_listings", params, ctx)
 
 
 @mcp.tool()
 # 用途：将 MCP 挂牌查询转交市场服务，返回允许公开的商品信息。
-def get_listing(params: ListingParams, ctx: Context) -> dict:
+def get_listing(params: ListingParams, ctx: Context) -> dict[str, object]:
     """查看公开商品信息、库存和价格。"""
     return forward("get_listing", params, ctx)
 
 
 @mcp.tool()
 # 用途：将 MCP 政策查询转交市场服务，返回政策文本及证据编号。
-def get_policy(params: PolicyParams, ctx: Context) -> dict:
+def get_policy(params: PolicyParams, ctx: Context) -> dict[str, object]:
     """查看卖家定价政策和证据编号。"""
     return forward("get_policy", params, ctx)
 
 
 @mcp.tool()
 # 用途：将 MCP 卖家询问转交市场服务，返回公开说法与证据。
-def ask_seller(params: SellerParams, ctx: Context) -> dict:
+def ask_seller(params: SellerParams, ctx: Context) -> dict[str, object]:
     """询问卖家，回复只代表卖家公开说法。"""
     return forward("ask_seller", params, ctx)
 
 
 @mcp.tool()
 # 用途：将 MCP 出价转交市场服务，取得还价或报价单，不在适配层成交。
-def make_offer(params: OfferRequest, ctx: Context) -> dict:
+def make_offer(params: OfferRequest, ctx: Context) -> dict[str, object]:
     """按整数分报价，接受后取得报价单但尚未成交。"""
     return forward("make_offer", params, ctx)
 
 
 @mcp.tool()
 # 用途：将 MCP 下单转交统一事务服务，沿用同一预算、库存和数量检查。
-def place_order(params: OrderParams, ctx: Context) -> dict:
+def place_order(params: OrderParams, ctx: Context) -> dict[str, object]:
     """用当前任务报价单下单，预算、数量和库存由服务端检查。"""
     return forward("place_order", params, ctx)
 
 
 @mcp.tool()
 # 用途：转发逐笔审批申请，不能在 MCP 层自行扩大预算或批准交易。
-def request_approval(params: ApprovalParams, ctx: Context) -> dict:
+def request_approval(params: ApprovalParams, ctx: Context) -> dict[str, object]:
     """申请逐笔超预算授权，M1 不会自动批准。"""
     return forward("request_approval", params, ctx)
 
 
 @mcp.tool()
 # 用途：通过 MCP 查证原动作是否已提交，不推进模拟时间。
-def get_operation(params: OperationParams, ctx: Context) -> dict:
+def get_operation(params: OperationParams, ctx: Context) -> dict[str, object]:
     """查证原动作的提交结果，不推进时间。"""
     return forward("get_operation", params, ctx)
 
 
 @mcp.tool()
 # 用途：通过 MCP 读取当前任务已经成交的订单和累计花费。
-def list_task_orders(ctx: Context) -> dict:
+def list_task_orders(ctx: Context) -> dict[str, object]:
     """查看当前任务已经成交的订单和累计花费。"""
     from market.tools import Params
 
@@ -2529,45 +2580,132 @@ def list_task_orders(ctx: Context) -> dict:
 
 @mcp.tool()
 # 用途：通过 MCP 提交结构化采购报告，最终结果仍由服务端独立验收。
-def finish(params: FinishParams, ctx: Context) -> dict:
+def finish(params: FinishParams, ctx: Context) -> dict[str, object]:
     """提交报告，由服务端独立验收。"""
     return forward("finish", params, ctx)
 ```
 
 ### C 的运行和三个 MCP 实验
 
-先保持 HTTP 服务运行：
+先验证 HTTP，再验证 MCP。下面命令都由你执行，本教程没有把预期输出当成已通过的结果。
+
+**第一步：在终端 A 启动并保持 HTTP 服务运行。**
 
 ```bash
+# 在项目根目录运行；数据库与业务表已在 B 批创建，这里再次执行建表只补缺失表。
+cd /mnt/d/bazaar-agent
+docker compose up --wait postgres
+uv run --env-file .env python -m scripts.init_db
 uv run --env-file .env uvicorn market.api.app:app --host 127.0.0.1 --port 8000
 ```
 
-浏览器打开 http://127.0.0.1:8000/docs，执行 POST /tasks，选择 s01_basic。复制响应里的 task_id 和 agent_token，在另一个终端设置：
+`market.api.app:app` 表示加载 `D:\bazaar-agent\market\api\app.py` 中名为 app 的 FastAPI 对象。启动成功后终端会保持占用，这是服务器在等待请求；后面的命令使用终端 B。当前只监听本机，不需要开放外网端口。
+
+**第二步：用浏览器验证 HTTP 请求能到达原来的交易服务。**
+
+浏览器打开 [HTTP 接口调试页面](http://127.0.0.1:8000/docs)，展开 `POST /tasks`，点击 Try it out，用下面的请求体执行：
+
+```json
+{"scenario": "s01_basic"}
+```
+
+响应应包含 task_id、owner_token 和 agent_token。只在本机保留这些运行身份，不需要发到聊天或提交到 Git。接着展开 `POST /tasks/{task_id}/actions`，填入刚创建的 task_id；authorization 请求头输入 `Bearer ` 加上该任务的 agent_token。本教程用 Header 提取令牌，所以直接填写端点里的 authorization 字段。
+
+用下面的完整请求体执行一次搜索：
+
+```json
+{
+  "action_id": "http-search-001",
+  "tool": "search_listings",
+  "arguments": {"category": "lamp", "max_price": 13000}
+}
+```
+
+价格上限 13000 表示 130 元；当前固定价模板下应返回 lamp_a。用完全相同的请求再执行一次，应返回相同结果；两次之间和之后分别用 `GET /tasks/{task_id}` 查看 sim_time，重复动作不应再次推进时钟。新业务动作使用新 action_id，相同动作重发沿用原 action_id。
+
+这一轮实际经过了 `HTTP 请求 → ActionRequest 校验 → MarketService.execute → 数据库事务 → HTTP 响应`，没有调用模型。公开挂牌结果不应包含 reserve_price 或 truth_condition。
+
+**第三步：在终端 B 启动 Inspector，完成连接、列工具、调用工具三个实验。**
+
+重新用 `POST /tasks` 创建一份 s01_basic 任务，作为本次 MCP 连接的独立市场。将它的 task_id 和 agent_token 填入下面两项环境变量；终端 A 的 HTTP 服务继续运行。
 
 ```bash
+# 下面两项替换为新任务实际返回的值；它们属于市场任务，不是模型 API Key。
+cd /mnt/d/bazaar-agent
 export BAZAAR_TASK_ID='填写本次返回的任务编号'
 export BAZAAR_TASK_TOKEN='填写本次返回的agent_token'
+export BAZAAR_API_URL='http://127.0.0.1:8000'
 export PYTHONPATH="/mnt/d/bazaar-agent"
-uv run --env-file .env mcp dev mcp_server/server.py
+uv run --env-file .env mcp dev /mnt/d/bazaar-agent/mcp_server/server.py
 ```
 
 这两项是每次新任务生成的运行身份，所以需要填你本机实际返回值；代码文件中没有留待实现的占位函数。
 
 在 Inspector 中依次操作：
 
-1. 连接 stdio 服务，看到初始化成功，保存握手截图。
-2. 点击列工具，确认显示上面的十个工具，模型参数里没有令牌或执行代次。
-3. 调用 search_listings，输入 `{"params":{}}`；再调用 get_listing，输入 `{"params":{"listing_id":"lamp_a"}}`。确认结果只有公开字段。
+1. **连接与发现实验**：使用命令打印的地址打开 Inspector，连接 stdio 服务，保存连接成功与服务信息。新协议可以使用 server/discover；旧协议走 initialize 初始化。当前 SDK 兼容两种路径，按实际日志记录，不要求新版客户端一定出现独立握手。
+2. **列工具实验**：列出工具，确认共有十个工具；检查 get_listing 的输入只有 params 中的 listing_id，Context、任务令牌、执行代次没有出现在工具参数中。
+3. **调用工具实验**：先用下面的搜索与查询输入确认公开信息，再完成一次报价和下单，最后查询实际订单。
+
+调用 search_listings：
+
+```json
+{"params": {}}
+```
+
+调用 get_listing：
+
+```json
+{"params": {"listing_id": "lamp_a"}}
+```
+
+调用 make_offer，金额 12000 表示单价 120 元，qty=1 表示本次数量为 1：
+
+```json
+{"params": {"listing_id": "lamp_a", "unit_price": 12000, "qty": 1}}
+```
+
+预期 data.status 为 accepted，并返回 data.quote.quote_id。接受出价只生成报价，尚未成交。用实际返回的 quote_id 调用 place_order；如果第一张报价编号是 q_1，完整输入为：
+
+```json
+{"params": {"item_id": "lamp", "quote_id": "q_1", "qty": 1}}
+```
+
+最后调用 list_task_orders，输入 `{}`，应看到一张台灯订单和累计花费 12000 分。这里手动购买一件是为了验证工具调用与数据库成交能贯通，整套自主采购在 D 批交给 Agent 完成。报价有效期按模拟分钟计算，不按你操作网页所花的现实时间计算。
 
 Inspector 的子进程也需要继承 BAZAAR_TASK_ID、BAZAAR_TASK_TOKEN 和 PYTHONPATH；如果使用界面里的独立启动配置，把这三项填入该连接的环境变量栏。
 
 要单独用 stdio 启动而不打开 Inspector，可以运行：
 
 ```bash
-uv run --env-file .env mcp run mcp_server/server.py --transport stdio
+uv run --env-file .env mcp run /mnt/d/bazaar-agent/mcp_server/server.py --transport stdio
 ```
 
-MCP 的接口依据官方 [MCPServer 示例](https://py.sdk.modelcontextprotocol.io/get-started/first-steps/) 和 [Context 注入说明](https://py.sdk.modelcontextprotocol.io/handlers/context/)。本教程在安装命令中限定 v2 主版本，版本和 uv.lock 一起提交，避免混用 v1 与 v2 的导入路径。
+stdio 把进程的标准输入输出用于 MCP 消息。单独运行时它可能安静地等待客户端，不应把额外的 print 调试文本写入标准输出。
+
+MCP 的接口依据官方 [MCPServer 示例](https://py.sdk.modelcontextprotocol.io/get-started/first-steps/)、[Context 注入说明](https://py.sdk.modelcontextprotocol.io/handlers/context/)和[协议版本变化说明](https://py.sdk.modelcontextprotocol.io/whats-new/)。本教程在安装命令中限定 v2 主版本，版本和 uv.lock 一起提交，避免混用 v1 与 v2 的导入路径。
+
+### C 的独立自动检查与退出条件
+
+本批先写好第 6 节中 `D:\bazaar-agent\tests\test_api.py` 和 `D:\bazaar-agent\tests\test_mcp.py` 的完整代码。它们只依赖 API、HTTP 客户端与 MCP 适配层，不需要先写 Agent，也不调用付费模型。第 6 节中的 `D:\bazaar-agent\tests\test_api_agent.py` 文件等 D 批再创建，避免提前导入尚不存在的 Agent 模块。
+
+先在终端 B 用 Ctrl+C 停止 Inspector，或使用另一个位于项目根目录的终端执行：
+
+```bash
+# 先整理本批源码与文档，再跑新测试和全部已有测试。
+cd /mnt/d/bazaar-agent
+uv run ruff check --fix .
+uv run ruff format .
+uv run --env-file .env pytest /mnt/d/bazaar-agent/tests/test_api.py /mnt/d/bazaar-agent/tests/test_mcp.py
+uv run --env-file .env pytest
+uv run ruff check .
+uv run ruff format --check .
+git status --short
+```
+
+HTTP 测试经 FastAPI TestClient 进入真实路由；MCP 测试既检查内存连接，也会在用例生命周期内启动受控 stdio 子进程和本机随机端口的 Uvicorn 服务，验证进程间的完整调用链。交易都在测试夹具创建的隔离 PostgreSQL schema 中执行，结束后回收进程、线程和测试数据。因此，自动测试不要求你另开 Uvicorn 进程；手动 Inspector 实验则需要终端 A 的真实 HTTP 服务。两者都没有调用模型。
+
+C 批退出条件：HTTP 搜索正常且原动作重发不重复计时；Inspector 能发现十个工具并完成一次真实工具下单；公开结果不包含隐藏字段；MCP 自动测试与全部既有测试通过；代码和格式检查通过。提交本批源码、教程、pyproject.toml 和 uv.lock 后，再核对 GitHub CI。通过后开始 D 批模型适配与 Agent 循环。
 
 ## 5 D：模型适配与纯 Python Agent
 
@@ -3294,6 +3432,208 @@ uv run --env-file .env python -m agent.worker --scenario s01_basic --real-llm --
 
 ## 6 完整的接口、MCP 与 Agent 测试文件
 
+### 文件：D:\bazaar-agent\tests\test_api.py
+
+WSL：/mnt/d/bazaar-agent/tests/test_api.py
+
+本文件在 C 批独立运行，验证 HTTP 身份隔离、交易、响应丢失查证和 SSE，不依赖 Agent。
+
+```python
+# 本模块验证 HTTP 接口与 MarketClient 的配合，复用 conftest 中隔离的 PostgreSQL schema。
+# FastAPI TestClient 执行真实路由；仅传输故障使用替身，不调用模型或修改个人开发表。
+import json
+from collections.abc import Iterator
+from uuid import uuid4
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+
+from market.api.app import create_app
+from market.api.client import MarketClient
+from market.ledger.service import MarketService
+
+
+# 用途：为一个测试启动应用生命周期并注入隔离的业务服务，退出时关闭测试客户端。
+@pytest.fixture
+def http(service: MarketService) -> Iterator[TestClient]:
+    with TestClient(create_app(service)) as transport:
+        yield transport
+
+
+# 用途：经 HTTP 创建指定场景的任务，返回任务身份和绑定该任务的客户端；金额单位为分。
+def create_client(http: TestClient, scenario: str = "s01_basic") -> tuple[dict, MarketClient]:
+    response = http.post("/tasks", json={"scenario": scenario})
+    assert response.status_code == 200
+    task = response.json()
+    client = MarketClient("http://testserver", task["task_id"], task["agent_token"], http)
+    return task, client
+
+
+# 用途：通过 HTTP 报价并下单，再重发原动作，验证只成交一次且不重复计时或扣款。
+def test_http_purchase_retry_and_operation_lookup(http: TestClient) -> None:
+    task, client = create_client(http)
+    offered = client.execute(
+        str(uuid4()), "make_offer", {"listing_id": "lamp_a", "unit_price": 12000, "qty": 1}
+    )
+    assert offered["status"] == "success"
+    quote_id = offered["data"]["quote"]["quote_id"]
+    action_id = str(uuid4())
+    arguments = {"item_id": "lamp", "quote_id": quote_id, "qty": 1}
+    bought = client.execute(action_id, "place_order", arguments)
+    assert bought["status"] == "success"
+    before = client.snapshot()
+
+    # 同一任务的同一动作重发，必须采用原结果；模拟分钟和累计花费都不能再增加。
+    assert client.execute(action_id, "place_order", arguments) == bought
+    assert client.operation(action_id) == bought
+    assert client.snapshot() == before
+    assert len(before["orders"]) == len(before["ledger"]) == 1
+    assert before["spent"] == 12000
+    headers = {"Authorization": f"Bearer {task['agent_token']}"}
+    orders = http.get(f"/tasks/{task['task_id']}/orders", headers=headers)
+    assert orders.status_code == 200
+    assert orders.json()["orders"] == before["orders"]
+    assert orders.json()["ledger"] == before["ledger"]
+
+
+# 用途：验证任务令牌隔离、人工干预的 owner 权限，以及公开挂牌不会泄露隐藏字段。
+def test_http_task_scope_and_owner_intervention(http: TestClient) -> None:
+    task, client = create_client(http)
+    other, _ = create_client(http)
+    path = f"/tasks/{task['task_id']}"
+    assert http.get(path).status_code == 404
+    assert (
+        http.get(path, headers={"Authorization": f"Bearer {other['agent_token']}"}).status_code
+        == 404
+    )
+
+    body = {"action_id": str(uuid4()), "listing_id": "lamp_a"}
+    intervention = f"{path}/interventions/stockout"
+    assert (
+        http.post(
+            intervention, json=body, headers={"Authorization": f"Bearer {task['agent_token']}"}
+        ).status_code
+        == 404
+    )
+    response = http.post(
+        intervention, json=body, headers={"Authorization": f"Bearer {task['owner_token']}"}
+    )
+    assert response.status_code == 200
+    listing = client.execute(str(uuid4()), "get_listing", {"listing_id": "lamp_a"})["data"]
+    assert listing["stock"] == 0
+    assert "reserve_price" not in listing
+    assert "truth_condition" not in listing
+
+
+# 用途：验证 HTTP 外层拒绝越权字段，工具内层拒绝布尔数量，非法输入不产生订单。
+def test_http_request_validation(http: TestClient) -> None:
+    # 场景只能从服务端白名单选择，不能通过场景字段读取任意本地路径。
+    assert http.post("/tasks", json={"scenario": "unknown_scenario"}).status_code == 422
+    task, client = create_client(http)
+    response = http.post(
+        f"/tasks/{task['task_id']}/actions",
+        headers={"Authorization": f"Bearer {task['agent_token']}"},
+        json={
+            "action_id": str(uuid4()),
+            "tool": "search_listings",
+            "arguments": {},
+            "owner": True,
+        },
+    )
+    assert response.status_code == 422
+    rejected = client.execute(
+        str(uuid4()), "place_order", {"item_id": "lamp", "quote_id": "absent", "qty": True}
+    )
+    assert rejected["error"]["code"] == "INVALID_ARGUMENT"
+    assert client.snapshot()["orders"] == []
+
+
+# 用途：让一次真实下单先提交，再丢弃响应，验证客户端通过原动作号查证而不会重复购买。
+def test_http_client_recovers_lost_order_response(http: TestClient) -> None:
+    task, normal = create_client(http)
+    offered = normal.execute(
+        str(uuid4()), "make_offer", {"listing_id": "lamp_a", "unit_price": 12000, "qty": 1}
+    )
+    quote_id = offered["data"]["quote"]["quote_id"]
+
+    # 类说明：包装真实测试传输，只模拟一次“数据库已成交、客户端没收到响应”。
+    class LoseOneResponse:
+        # 用途：记录下单请求次数，后面检查客户端是否多发了一笔采购。
+        def __init__(self) -> None:
+            self.order_requests = 0
+
+        # 用途：先经真实路由执行请求，再对第一次下单抛出超时；查证 GET 正常转交。
+        def request(self, method: str, path: str, **kwargs):
+            response = http.request(method, path, **kwargs)
+            if method == "POST" and kwargs.get("json", {}).get("tool") == "place_order":
+                self.order_requests += 1
+                if self.order_requests == 1:
+                    raise httpx.ReadTimeout("模拟成交后响应丢失")
+            return response
+
+    transport = LoseOneResponse()
+    client = MarketClient("http://testserver", task["task_id"], task["agent_token"], transport)
+    result = client.execute(
+        str(uuid4()), "place_order", {"item_id": "lamp", "quote_id": quote_id, "qty": 1}
+    )
+    assert result["status"] == "success"
+    assert transport.order_requests == 1
+    state = normal.snapshot()
+    assert len(state["orders"]) == len(state["ledger"]) == 1
+    assert state["spent"] == 12000
+
+
+# 用途：模拟写请求和查证持续超时，验证有限重发沿用同一个动作号，并明确返回 unknown。
+def test_http_client_preserves_action_id_when_result_is_unknown() -> None:
+    action_ids = []
+    lookups = []
+
+    # 用途：记录每次发送的动作号和查证路径，然后模拟没有可用响应的传输故障。
+    def timeout(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            action_ids.append(json.loads(request.content)["action_id"])
+        else:
+            lookups.append(request.url.path)
+        raise httpx.ReadTimeout("模拟网络持续超时", request=request)
+
+    action_id = str(uuid4())
+    with httpx.Client(base_url="http://testserver", transport=httpx.MockTransport(timeout)) as http:
+        client = MarketClient("http://testserver", "test_task", "test_token", http)
+        result = client.execute(
+            action_id, "place_order", {"item_id": "lamp", "quote_id": "q_1", "qty": 1}
+        )
+    assert result["status"] == "unknown"
+    assert result["data"]["action_id"] == action_id
+    assert action_ids == [action_id] * 3
+    assert lookups == [f"/tasks/test_task/operations/{action_id}"] * 3
+
+
+# 用途：验证已结束任务的 SSE 按序发送公开事件、支持 after 补发，并发送 done 后结束连接。
+def test_http_sse_replays_events_and_closes_after_finish(http: TestClient) -> None:
+    task, client = create_client(http)
+    # 没有采购就报告停止会验收失败，但任务仍已结束，可以检查事件流正常收尾。
+    finished = client.execute(
+        str(uuid4()), "finish", {"outcome": "stopped", "reason": "测试事件流"}
+    )
+    assert finished["status"] == "success"
+    headers = {"Authorization": f"Bearer {task['agent_token']}"}
+    path = f"/tasks/{task['task_id']}/events"
+    response = http.get(path, headers=headers)
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    sequences = [
+        int(line.removeprefix("id: "))
+        for line in response.text.splitlines()
+        if line.startswith("id: ")
+    ]
+    assert sequences and sequences == sorted(set(sequences))
+    assert "event: done" in response.text
+    resumed = http.get(path, params={"after": sequences[-1]}, headers=headers)
+    assert "id: " not in resumed.text
+    assert "event: done" in resumed.text
+```
+
 ### 文件：D:\bazaar-agent\tests\test_api_agent.py
 
 WSL：/mnt/d/bazaar-agent/tests/test_api_agent.py
@@ -3515,54 +3855,237 @@ def test_repeated_observation_stops(service):
 
 WSL：/mnt/d/bazaar-agent/tests/test_mcp.py
 
-这个测试使用 MCP SDK 的内存客户端握手和工具调用，HTTP 层使用 TestClient，市场与交易仍在 PostgreSQL 上执行，不需要启动外部模型。
+这份测试可以在 C 批独立创建和运行，不依赖 D 批的 Agent。它使用 MCP SDK 的内存客户端连接和工具调用，HTTP 层使用 TestClient，市场与交易仍在 PostgreSQL 上执行，不需要启动外部模型。Inspector 的 stdio 子进程连接另按 C 批的手动实验验证。
 
 ```python
+# 本模块验证 MCP 协议层：发现十个工具、隐藏身份参数、公开查询、真实下单和预算拒绝。
+# 交易通过 FastAPI TestClient 进入隔离的 PostgreSQL schema；stdio 测试另启动受控子进程。
+# 子进程仅在测试的 async with 期间运行，退出后由 SDK 清理，不留下后台服务或调用模型。
 import asyncio
 import json
+import socket
+import sys
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+from threading import Thread
+from typing import Literal
 
+import httpx
+import pytest
+import uvicorn
 from fastapi.testclient import TestClient
-from mcp import Client
+from mcp import Client, StdioServerParameters
+from mcp.server import MCPServer
 
 from market.api.app import create_app
 from market.api.client import MarketClient
+from market.ledger.service import MarketService
+from market.tools import TOOL_MODELS
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
-# 用途：经实际 MCP 协议和 HTTP 转接验证公开字段边界，并检查超预算采购无法绕过服务端授权。
-def test_mcp_reads_public_fields_and_cannot_bypass_budget(service, monkeypatch):
+# 用途：仅在用例期间运行一个真实 HTTP 服务，绑定本机随机端口，退出时停止并回收线程。
+# 注入的 Service 使用隔离测试 schema；不另建开发实例，也不留下持续运行的后台服务。
+@contextmanager
+def tcp_market(service: MarketService) -> Iterator[str]:
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+        server = uvicorn.Server(uvicorn.Config(create_app(service), log_level="error"))
+        thread = Thread(target=server.run, kwargs={"sockets": [listener]})
+        thread.start()
+        try:
+            deadline = time.monotonic() + 10
+            while not server.started:
+                if not thread.is_alive() or time.monotonic() >= deadline:
+                    raise RuntimeError("测试 HTTP 服务未能启动")
+                time.sleep(0.01)
+            yield f"http://127.0.0.1:{port}"
+        finally:
+            server.should_exit = True
+            thread.join(timeout=10)
+            assert not thread.is_alive(), "测试 HTTP 服务没有按时退出"
+
+
+# 用途：为 MCP 用例创建指定场景，通过替换客户端工厂，把转发请求送入隔离的 HTTP 服务。
+@contextmanager
+def mcp_market(
+    service: MarketService, monkeypatch: pytest.MonkeyPatch, scenario: str = "s01_basic"
+) -> Iterator[tuple[MCPServer, MarketClient]]:
     from mcp_server import server
 
     with TestClient(create_app(service)) as http:
-        task = http.post("/tasks", json={"scenario": "s03_low_budget"}).json()
+        task = http.post("/tasks", json={"scenario": scenario}).json()
         backend = MarketClient("http://testserver", task["task_id"], task["agent_token"], http)
-        # 回调用途：零参数回调返回本测试的 HTTP 客户端，让 MCP 转接进入同一隔离测试服务。
-        monkeypatch.setattr(server, "client", lambda: backend)
 
-        # 用途：建立内存 MCP 连接，依次查看挂牌、出价和下单，核对预算不足时返回等待审批。
-        async def exercise():
-            # Client(server) 使用 SDK 提供的内存传输，仍会经过 MCP 协议。
-            async with Client(server.mcp) as client:
+        # 用途：供每个 MCP 工具取得当前测试任务的 HTTP 客户端，不读取本机任务令牌。
+        def current_client() -> MarketClient:
+            return backend
+
+        monkeypatch.setattr(server, "client", current_client)
+        yield server.mcp, backend
+
+
+# 用途：通过实际 MCP 客户端发现工具，检查十个工具均已注册且身份与 Context 不可由模型填写。
+def test_mcp_discovers_tools_without_identity_parameters() -> None:
+    from mcp_server import server
+
+    # 用途：建立协议连接并读取工具清单，校验 SDK 生成的公开输入 schema。
+    async def discover() -> None:
+        async with Client(server.mcp, raise_exceptions=True) as client:
+            listed = await client.list_tools()
+            assert {tool.name for tool in listed.tools} == set(TOOL_MODELS)
+            for tool in listed.tools:
+                # 每个工具都应发布结构化输出契约，防止返回注解退回裸 dict 后只剩文本。
+                assert tool.output_schema is not None
+                assert tool.output_schema["type"] == "object"
+                properties = tool.input_schema.get("properties", {})
+                assert (
+                    not {"ctx", "token", "task_id", "owner_token", "exec_epoch"} & properties.keys()
+                )
+            listing_tool = next(tool for tool in listed.tools if tool.name == "get_listing")
+            assert set(listing_tool.input_schema["properties"]) == {"params"}
+
+    asyncio.run(discover())
+
+
+# 用途：经 MCP 查询、报价、下单和查订单，验证真实成交落库且公开结果不包含内部真值。
+def test_mcp_purchase_uses_http_and_database(service, monkeypatch) -> None:
+    with mcp_market(service, monkeypatch) as (server, backend):
+        # 用途：完整走工具协议调用，金额 12000 为整数分，qty=1 为一件台灯。
+        async def purchase() -> None:
+            async with Client(server, raise_exceptions=True) as client:
                 listing = await client.call_tool(
                     "get_listing", {"params": {"listing_id": "lamp_a"}}
                 )
+                assert not listing.is_error, listing
+                assert listing.structured_content is not None, listing
                 public = json.dumps(listing.structured_content, ensure_ascii=False)
-                assert (
-                    "lamp_a" in public
-                    and "reserve_price" not in public
-                    and "truth_condition" not in public
-                )
+                assert "lamp_a" in public
+                assert "reserve_price" not in public and "truth_condition" not in public
                 offered = await client.call_tool(
                     "make_offer",
                     {"params": {"listing_id": "lamp_a", "unit_price": 12000, "qty": 1}},
                 )
+                assert not offered.is_error
+                assert offered.structured_content is not None
+                quote_id = offered.structured_content["data"]["quote"]["quote_id"]
+                bought = await client.call_tool(
+                    "place_order", {"params": {"item_id": "lamp", "quote_id": quote_id, "qty": 1}}
+                )
+                assert bought.structured_content is not None
+                assert bought.structured_content["status"] == "success"
+                orders = await client.call_tool("list_task_orders", {})
+                assert orders.structured_content is not None
+                assert len(orders.structured_content["data"]["orders"]) == 1
+
+        asyncio.run(purchase())
+        state = backend.snapshot()
+        assert len(state["orders"]) == len(state["ledger"]) == 1
+        assert state["spent"] == 12000
+
+
+# 用途：使用预算不足场景验证 MCP 不能绕过服务端授权，等待批准时订单和账本仍为空。
+def test_mcp_reads_public_fields_and_cannot_bypass_budget(service, monkeypatch) -> None:
+    with mcp_market(service, monkeypatch, "s03_low_budget") as (server, backend):
+        # 用途：申请一份超过当前预算、仍在可申请上限内的报价，并尝试实际下单。
+        async def request_over_budget() -> None:
+            async with Client(server, raise_exceptions=True) as client:
+                offered = await client.call_tool(
+                    "make_offer",
+                    {"params": {"listing_id": "lamp_a", "unit_price": 12000, "qty": 1}},
+                )
+                assert offered.structured_content is not None
                 quote_id = offered.structured_content["data"]["quote"]["quote_id"]
                 result = await client.call_tool(
                     "place_order", {"params": {"item_id": "lamp", "quote_id": quote_id, "qty": 1}}
                 )
+                assert result.structured_content is not None
                 assert result.structured_content["status"] == "approval_required"
 
-        asyncio.run(exercise())
-        assert backend.snapshot()["spent"] == 0
+        asyncio.run(request_over_budget())
+        state = backend.snapshot()
+        assert state["spent"] == 0 and state["orders"] == [] and state["ledger"] == []
+
+
+# 用途：真实启动 stdio 子进程，分别验证新版协议发现和兼容旧版 initialize 握手后列工具。
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+def test_mcp_stdio_connection_and_tool_discovery(mode: Literal["auto", "legacy"]) -> None:
+    parameters = StdioServerParameters(
+        command=sys.executable,
+        # SDK 提供 mcp 控制台入口，没有 mcp.__main__；显式调用同一个 CLI 应用。
+        args=[
+            "-c",
+            "from mcp.cli import app; app()",
+            "run",
+            str(ROOT / "mcp_server/server.py"),
+            "--transport",
+            "stdio",
+        ],
+        cwd=str(ROOT),
+        env={"PYTHONPATH": str(ROOT)},
+    )
+
+    # 用途：在有时限的连接中发现工具；只列工具无需创建业务任务，也不会访问模型。
+    async def discover() -> None:
+        async with Client(parameters, mode=mode, read_timeout_seconds=20) as client:
+            listed = await client.list_tools()
+            assert {tool.name for tool in listed.tools} == set(TOOL_MODELS)
+
+    asyncio.run(asyncio.wait_for(discover(), timeout=40))
+
+
+# 用途：贯通真实 stdio 子进程、真实 HTTP 端口与 PostgreSQL，验证工具调用最终只产生一笔成交。
+def test_mcp_stdio_purchase_over_real_http(service: MarketService) -> None:
+    with tcp_market(service) as url, httpx.Client(base_url=url, timeout=20) as http:
+        task = http.post("/tasks", json={"scenario": "s01_basic"}).json()
+        parameters = StdioServerParameters(
+            command=sys.executable,
+            args=[
+                "-c",
+                "from mcp.cli import app; app()",
+                "run",
+                str(ROOT / "mcp_server/server.py"),
+                "--transport",
+                "stdio",
+            ],
+            cwd=str(ROOT),
+            # 只向 MCP 子进程传递本次测试任务的身份，不传模型密钥或数据库连接配置。
+            env={
+                "PYTHONPATH": str(ROOT),
+                "BAZAAR_API_URL": url,
+                "BAZAAR_TASK_ID": task["task_id"],
+                "BAZAAR_TASK_TOKEN": task["agent_token"],
+            },
+        )
+
+        # 用途：跨真实进程提交报价与下单，再从同一任务查询订单；金额均为整数分。
+        async def purchase() -> None:
+            async with Client(parameters, read_timeout_seconds=20) as client:
+                offered = await client.call_tool(
+                    "make_offer",
+                    {"params": {"listing_id": "lamp_a", "unit_price": 12000, "qty": 1}},
+                )
+                assert not offered.is_error, offered
+                assert offered.structured_content is not None
+                quote_id = offered.structured_content["data"]["quote"]["quote_id"]
+                bought = await client.call_tool(
+                    "place_order", {"params": {"item_id": "lamp", "quote_id": quote_id, "qty": 1}}
+                )
+                assert bought.structured_content is not None
+                assert bought.structured_content["status"] == "success"
+                orders = await client.call_tool("list_task_orders", {})
+                assert orders.structured_content is not None
+                assert orders.structured_content["data"]["spent"] == 12000
+
+        asyncio.run(asyncio.wait_for(purchase(), timeout=40))
+        headers = {"Authorization": f"Bearer {task['agent_token']}"}
+        state = http.get(f"/tasks/{task['task_id']}", headers=headers).json()
+        assert len(state["orders"]) == len(state["ledger"]) == 1
+        assert state["spent"] == 12000
 ```
 
 完成 C、D 后运行：
